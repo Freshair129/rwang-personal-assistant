@@ -1,0 +1,78 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RWANG Node Manifest",
+  "description": "Normative schema for a per-node manifest (CR-2026-08-20-01 A2 §2.3.5), e.g. docs/domains/DOM-01--playback/manifest.yaml. The manifest's SCHEMA is Core-owned (part of the Hybrid IR); its filename/location convention is adapter-owned. A manifest declares OUTGOING edge assertions only — one edge has exactly one from-side assertion source (RWG-208 otherwise). There is no upstream/downstream file pair: inverse views are queries, optionally materialized as generated .upstream.gen.* projections that are never hand-edited and never evidence sources.",
+  "type": "object",
+  "required": ["entity_id", "entity_type", "edges"],
+  "properties": {
+    "entity_id": {
+      "type": "string",
+      "pattern": "^(doc|sec|req|code|comp|test|api|db|dom|feat|diag|testspec|rel):.+"
+    },
+    "entity_type": {
+      "type": "string",
+      "enum": [
+        "document",
+        "section",
+        "requirement",
+        "domain",
+        "feature",
+        "code_file",
+        "component",
+        "test",
+        "test_spec",
+        "diagram",
+        "api_endpoint",
+        "db_table",
+        "release"
+      ]
+    },
+    "doc_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "edges": {
+      "type": "array",
+      "description": "Outgoing (forward-direction) assertions, each referencing a CENTRAL contract in docs/registry/edge-contracts/ — contract definitions are never duplicated per node. A manifest citing a contract_id/version that does not match the central registry fails RWG-209.",
+      "items": {
+        "type": "object",
+        "required": ["predicate", "to", "contract_id", "contract_version"],
+        "properties": {
+          "predicate": {
+            "type": "string",
+            "enum": [
+              "specifies",
+              "defines",
+              "contains",
+              "implements",
+              "designs",
+              "tests",
+              "verifies",
+              "depends_on",
+              "references",
+              "exposes",
+              "persists_to",
+              "contradicts",
+              "guides",
+              "visualized_by",
+              "verified_by",
+              "refines",
+              "supersedes",
+              "applies_to"
+            ]
+          },
+          "to": {
+            "type": "string",
+            "pattern": "^(doc|sec|req|code|comp|test|api|db|dom|feat|diag|testspec|rel):.+"
+          },
+          "contract_id": { "type": "string", "pattern": "^edge:[a-z0-9_]+$" },
+          "contract_version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+          "payload": {
+            "type": "object",
+            "description": "Optional; validated against the contract's payload_schema"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,87 @@
+{
+  "catalog_id": "zuri-v2",
+  "description": "Execution-mode catalog vendored from Zuri Project Manager (docs/EXECUTION-MODES.md, FR-069, FR-070, contracts/plan-envelope.schema.json). The TARGET project's own registry always wins: when composing a plan for a live Zuri workspace, regenerate this catalog from its src/lib/validation/enums.js and schema before use.",
+  "envelope": {
+    "schema_versions": ["1.0", "1.1", "1.2"],
+    "preferred_schema_version": "1.2",
+    "v1_2_requires": {
+      "envelope": ["trace", "domainBinding", "identityRefs"],
+      "trace": ["correlationId", "idempotencyKey"],
+      "domainBinding": ["primaryDomainId", "supportingDomainIds", "technicalOwnerDomainId"],
+      "workstream": ["executionModeId", "executionContractId", "contractVersion"]
+    },
+    "dependency_types": ["BLOCKS", "REQUIRES", "RELATES_TO", "START_AFTER", "FINISH_BEFORE"]
+  },
+  "modes": [
+    {
+      "executionMode": "SOFTWARE_SPRINT",
+      "executionModeId": "EXM-SOFTWARE-SPRINT",
+      "executionContractId": "EXC-SOFTWARE-SPRINT-V1",
+      "contractVersion": "1.0",
+      "progressStrategy": "TASK_WEIGHT",
+      "containerSubtypes": ["SPRINT", "EPIC", "RELEASE"],
+      "itemSubtypes": ["TASK", "BUG"],
+      "metricKeys": ["completedWeight", "plannedWeight", "defects"]
+    },
+    {
+      "executionMode": "DATA_MIGRATION",
+      "executionModeId": "EXM-DATA-MIGRATION",
+      "executionContractId": "EXC-DATA-MIGRATION-V1",
+      "contractVersion": "1.0",
+      "progressStrategy": "RECORD_VALIDATION",
+      "containerSubtypes": ["MIGRATION_STAGE", "MIGRATION_BATCH"],
+      "itemSubtypes": ["DATASET", "VALIDATION", "RECONCILIATION"],
+      "metricKeys": ["recordsTotal", "processed", "success", "failed", "validated", "reconciled"]
+    },
+    {
+      "executionMode": "B2B_SALES",
+      "executionModeId": "EXM-B2B-SALES",
+      "executionContractId": "EXC-B2B-SALES-V1",
+      "contractVersion": "1.0",
+      "progressStrategy": "WEIGHTED_PIPELINE",
+      "containerSubtypes": ["SALES_PIPELINE", "SALES_STAGE"],
+      "itemSubtypes": ["ACCOUNT", "DEAL", "ACTIVITY"],
+      "metricKeys": ["target", "wonRevenue", "weightedValue"]
+    },
+    {
+      "executionMode": "B2C_CAMPAIGN",
+      "executionModeId": "EXM-B2C-CAMPAIGN",
+      "executionContractId": "EXC-B2C-CAMPAIGN-V1",
+      "contractVersion": "1.0",
+      "progressStrategy": "KPI_ATTAINMENT",
+      "containerSubtypes": ["CAMPAIGN", "CAMPAIGN_WAVE", "CHANNEL"],
+      "itemSubtypes": ["CREATIVE", "AUDIENCE", "EXPERIMENT"],
+      "metricKeys": ["spend", "leads", "cpa", "cac", "conversion", "conversions", "revenue", "roas"]
+    },
+    {
+      "executionMode": "PRODUCT_LAUNCH",
+      "executionModeId": "EXM-PRODUCT-LAUNCH",
+      "executionContractId": "EXC-PRODUCT-LAUNCH-V1",
+      "contractVersion": "1.0",
+      "progressStrategy": "MILESTONE_READINESS",
+      "containerSubtypes": ["LAUNCH_PHASE"],
+      "itemSubtypes": ["DELIVERABLE"],
+      "metricKeys": ["readiness", "blockedGates"]
+    },
+    {
+      "executionMode": "OPERATIONS",
+      "executionModeId": "EXM-OPERATIONS",
+      "executionContractId": "EXC-OPERATIONS-V1",
+      "contractVersion": "1.0",
+      "progressStrategy": "SLA_SCORE",
+      "containerSubtypes": ["OPS_PERIOD", "OPS_PROCESS"],
+      "itemSubtypes": ["CHECKLIST_ITEM", "ISSUE", "SLA"],
+      "metricKeys": ["slaMet", "slaTotal", "throughput", "backlog", "incidents", "completed"]
+    },
+    {
+      "executionMode": "BUSINESS_EXPANSION",
+      "executionModeId": "EXM-BUSINESS-EXPANSION",
+      "executionContractId": "EXC-BUSINESS-EXPANSION-V1",
+      "contractVersion": "1.0",
+      "progressStrategy": "EXPANSION_READINESS",
+      "containerSubtypes": ["EXPANSION_INITIATIVE", "EXPANSION_SITE"],
+      "itemSubtypes": ["SETUP_ACTION", "APPROVAL"],
+      "metricKeys": ["legal", "location", "budget", "hiring", "vendors", "operationalReadiness", "goLive"]
+    }
+  ]
+}

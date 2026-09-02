@@ -1,0 +1,169 @@
+{
+  "version": "1.0.0",
+  "templates": {
+    "startup-mvp": {
+      "id": "startup-mvp",
+      "name": "Startup MVP",
+      "description": "Minimal viable documentation for small teams shipping fast",
+      "ideal_team": [1, 3],
+      "ideal_files": [0, 50],
+      "complexity": "low",
+      "has_compliance_sections": false,
+      "has_ai_sections": false,
+      "documents": [
+        { "path": "docs/PRD.md", "required": true, "template": "startup-prd" },
+        { "path": "docs/API.md", "required": false, "template": "api-reference" },
+        { "path": "docs/ARCHITECTURE.md", "required": true, "template": "adr" },
+        { "path": "docs/GLOSSARY.md", "required": false, "template": "glossary" }
+      ],
+      "requirement_id_scheme": ["FR", "NFR"],
+      "standards": []
+    },
+    "3layer-appendix": {
+      "id": "3layer-appendix",
+      "name": "3-Layer + Appendix",
+      "description": "Balanced structure with PRD (Layer 1), SDD (Layer 2), optional AI (Layer 3), and 6 appendices",
+      "ideal_team": [4, 15],
+      "ideal_files": [50, 500],
+      "complexity": "medium",
+      "has_compliance_sections": false,
+      "has_ai_sections": true,
+      "documents": [
+        { "path": "docs/PRD-SDD-v1.0.md", "required": true, "template": "3layer-main" },
+        { "path": "docs/appendices/A-api-spec.md", "required": true, "template": "api-appendix" },
+        { "path": "docs/appendices/B-db-schema.md", "required": true, "template": "db-appendix" },
+        { "path": "docs/appendices/C-model-cards.md", "required": false, "template": "model-cards" },
+        { "path": "docs/appendices/D-traceability.md", "required": true, "template": "traceability" },
+        { "path": "docs/appendices/E-risk-matrix.md", "required": true, "template": "risk-matrix" },
+        { "path": "docs/appendices/F-glossary.md", "required": true, "template": "glossary" },
+        { "path": "docs/ARCHITECTURE.md", "required": true, "template": "adr" },
+        { "path": "docs/CONTRIBUTING.md", "required": false, "template": "contributing" },
+        { "path": "docs/frontend-design-system.md", "required": false, "template": "design-system" },
+        { "path": "docs/api/README.md", "required": false, "template": "api-guide" }
+      ],
+      "requirement_id_scheme": ["FR", "NFR", "SDD", "SEC", "AI-AGT", "AI-ETH", "BR", "AC"],
+      "standards": ["IEEE 29148-2018", "IEEE 1016-2009"]
+    },
+    "ieee-full": {
+      "id": "ieee-full",
+      "name": "IEEE Full Split",
+      "description": "Formal IEEE-compliant split documents (SRS, SDD, STP, SAD, OCD) for large teams with governance",
+      "ideal_team": [15, 100],
+      "ideal_files": [200, 10000],
+      "complexity": "high",
+      "has_compliance_sections": true,
+      "has_ai_sections": false,
+      "documents": [
+        { "path": "docs/SRS/SRS-v1.0.md", "required": true, "template": "ieee-srs" },
+        { "path": "docs/SRS/requirements/functional.md", "required": true, "template": "functional-reqs" },
+        { "path": "docs/SRS/requirements/non-functional.md", "required": true, "template": "nonfunctional-reqs" },
+        { "path": "docs/SRS/requirements/interfaces.md", "required": true, "template": "interface-reqs" },
+        { "path": "docs/SDD/SDD-v1.0.md", "required": true, "template": "ieee-sdd" },
+        { "path": "docs/STP/STP-v1.0.md", "required": true, "template": "ieee-stp" },
+        { "path": "docs/SAD/SAD-v1.0.md", "required": true, "template": "ieee-sad" },
+        { "path": "docs/OCD/OCD-v1.0.md", "required": false, "template": "ieee-ocd" },
+        { "path": "docs/appendices/traceability.md", "required": true, "template": "traceability" },
+        { "path": "docs/appendices/glossary.md", "required": true, "template": "glossary" },
+        { "path": "docs/ARCHITECTURE.md", "required": true, "template": "adr" }
+      ],
+      "requirement_id_scheme": ["FR", "NFR", "SDD", "SEC", "BR", "AC", "DR", "IR"],
+      "standards": ["IEEE 29148-2018", "IEEE 1016-2009", "IEEE 829-2008", "IEEE 42010-2011"]
+    },
+    "aiml-project": {
+      "id": "aiml-project",
+      "name": "AI/ML Project",
+      "description": "Tailored for AI/ML projects with model cards, ethics, data pipeline, and agent architecture",
+      "ideal_team": [3, 20],
+      "ideal_files": [50, 500],
+      "complexity": "medium-high",
+      "has_compliance_sections": false,
+      "has_ai_sections": true,
+      "documents": [
+        { "path": "docs/PRD-SDD-v1.0.md", "required": true, "template": "3layer-main" },
+        { "path": "docs/ai-system/agent-architecture.md", "required": true, "template": "agent-arch" },
+        { "path": "docs/ai-system/model-cards/TEMPLATE.md", "required": true, "template": "model-card-template" },
+        { "path": "docs/ai-system/data-pipeline.md", "required": true, "template": "data-pipeline" },
+        { "path": "docs/ai-system/prompt-engineering.md", "required": true, "template": "prompt-eng" },
+        { "path": "docs/ai-system/ethics-governance.md", "required": true, "template": "ai-ethics" },
+        { "path": "docs/ai-system/model-lifecycle.md", "required": true, "template": "model-lifecycle" },
+        { "path": "docs/appendices/D-traceability.md", "required": true, "template": "traceability" },
+        { "path": "docs/appendices/E-risk-matrix.md", "required": true, "template": "risk-matrix" },
+        { "path": "docs/appendices/F-glossary.md", "required": true, "template": "glossary" },
+        { "path": "docs/ARCHITECTURE.md", "required": true, "template": "adr" }
+      ],
+      "requirement_id_scheme": ["FR", "NFR", "SDD", "SEC", "AI-AGT", "AI-ETH", "BR", "AC", "DR"],
+      "standards": ["IEEE 29148-2018", "IEEE 1016-2009", "ISO/IEC 42001"]
+    },
+    "regulated": {
+      "id": "regulated",
+      "name": "Regulated Industry",
+      "description": "Full compliance-ready documentation for HIPAA, SOC2, PCI-DSS, FDA, or GDPR-regulated projects",
+      "ideal_team": [5, 50],
+      "ideal_files": [100, 5000],
+      "complexity": "high",
+      "has_compliance_sections": true,
+      "has_ai_sections": false,
+      "documents": [
+        { "path": "docs/SRS/SRS-v1.0.md", "required": true, "template": "ieee-srs" },
+        { "path": "docs/SDD/SDD-v1.0.md", "required": true, "template": "ieee-sdd" },
+        { "path": "docs/STP/STP-v1.0.md", "required": true, "template": "ieee-stp" },
+        { "path": "docs/compliance/privacy-impact-assessment.md", "required": true, "template": "pia" },
+        { "path": "docs/compliance/data-flow-map.md", "required": true, "template": "data-flow" },
+        { "path": "docs/compliance/access-control-matrix.md", "required": true, "template": "acl-matrix" },
+        { "path": "docs/compliance/incident-response-plan.md", "required": true, "template": "incident-response" },
+        { "path": "docs/compliance/audit-log-specification.md", "required": true, "template": "audit-log" },
+        { "path": "docs/appendices/traceability.md", "required": true, "template": "traceability" },
+        { "path": "docs/appendices/risk-matrix.md", "required": true, "template": "risk-matrix" },
+        { "path": "docs/appendices/glossary.md", "required": true, "template": "glossary" },
+        { "path": "docs/ARCHITECTURE.md", "required": true, "template": "adr" }
+      ],
+      "requirement_id_scheme": ["FR", "NFR", "SDD", "SEC", "BR", "AC", "DR", "IR", "CR"],
+      "standards": ["IEEE 29148-2018", "IEEE 1016-2009", "IEEE 829-2008", "ISO 27001", "NIST 800-53"]
+    },
+    "microservices": {
+      "id": "microservices",
+      "name": "Microservices",
+      "description": "Per-service documentation with system-level architecture for 3+ independent services",
+      "ideal_team": [5, 30],
+      "ideal_files": [200, 5000],
+      "complexity": "medium-high",
+      "has_compliance_sections": false,
+      "has_ai_sections": false,
+      "documents": [
+        { "path": "docs/system/architecture-overview.md", "required": true, "template": "system-arch" },
+        { "path": "docs/system/service-catalog.md", "required": true, "template": "service-catalog" },
+        { "path": "docs/system/api-gateway.md", "required": true, "template": "api-gateway" },
+        { "path": "docs/system/event-bus.md", "required": false, "template": "event-bus" },
+        { "path": "docs/services/SERVICE-TEMPLATE.md", "required": true, "template": "service-doc" },
+        { "path": "docs/runbooks/TEMPLATE.md", "required": true, "template": "runbook" },
+        { "path": "docs/appendices/traceability.md", "required": true, "template": "traceability" },
+        { "path": "docs/appendices/glossary.md", "required": true, "template": "glossary" },
+        { "path": "docs/ARCHITECTURE.md", "required": true, "template": "adr" }
+      ],
+      "requirement_id_scheme": ["FR", "NFR", "SDD", "SEC", "BR", "AC", "IR"],
+      "standards": ["IEEE 29148-2018", "C4 Model"]
+    },
+    "data-pipeline": {
+      "id": "data-pipeline",
+      "name": "Data Pipeline",
+      "description": "ETL/ELT-focused documentation with lineage, quality gates, and scheduling",
+      "ideal_team": [3, 15],
+      "ideal_files": [50, 500],
+      "complexity": "medium",
+      "has_compliance_sections": false,
+      "has_ai_sections": false,
+      "documents": [
+        { "path": "docs/PRD.md", "required": true, "template": "data-prd" },
+        { "path": "docs/data-architecture.md", "required": true, "template": "data-arch" },
+        { "path": "docs/data-catalog.md", "required": true, "template": "data-catalog" },
+        { "path": "docs/data-lineage.md", "required": true, "template": "data-lineage" },
+        { "path": "docs/data-quality.md", "required": true, "template": "data-quality" },
+        { "path": "docs/scheduling.md", "required": true, "template": "scheduling" },
+        { "path": "docs/appendices/glossary.md", "required": true, "template": "glossary" },
+        { "path": "docs/ARCHITECTURE.md", "required": true, "template": "adr" }
+      ],
+      "requirement_id_scheme": ["FR", "NFR", "SDD", "DR", "DQ"],
+      "standards": ["IEEE 29148-2018"]
+    }
+  }
+}

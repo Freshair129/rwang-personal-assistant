@@ -85,6 +85,39 @@ async function corePairingTest() {
       { ...deviceReq, method: "POST" },
       new URL("https://rwang.test:4173/api/action"),
     ), false);
+    assert.equal(core.isDeviceApiAllowed(
+      { ...deviceReq, method: "POST" },
+      new URL("https://rwang.test:4173/api/rwang/document-intelligence"),
+    ), false);
+
+    const deviceDocumentRes = response();
+    await core.handleApi(deviceReq, deviceDocumentRes, new URL("https://rwang.test:4173/api/rwang/document-intelligence"), {
+      readBody: async () => ({ action: "self-audit" }),
+      json,
+    });
+    assert.equal(deviceDocumentRes.status, 403, "paired devices must not trigger workspace scans");
+
+    const deviceSnapshot = await core.snapshot(deviceReq);
+    assert.equal(deviceSnapshot.documentIntelligence.available, true);
+    assert.equal(deviceSnapshot.documentIntelligence.operations.every(({ enabled }) => enabled === false), true);
+    assert.equal(deviceSnapshot.documentIntelligence.lastAudit, undefined);
+    assert.equal(JSON.stringify(deviceSnapshot.documentIntelligence).includes(rootDir), false);
+
+    const localDocumentRes = response();
+    await core.handleApi(localReq, localDocumentRes, new URL("https://localhost:4173/api/rwang/document-intelligence"), {
+      readBody: async () => ({ action: "self-audit" }),
+      json,
+    });
+    assert.equal(localDocumentRes.status, 200);
+    assert.equal(localDocumentRes.payload.ok, true);
+    assert.equal(localDocumentRes.payload.result.completed, true);
+
+    const disableCoreSkillRes = response();
+    await core.handleApi(localReq, disableCoreSkillRes, new URL("https://localhost:4173/api/rwang/config"), {
+      readBody: async () => ({ section: "skills", id: "doc-architect", enabled: false }),
+      json,
+    });
+    assert.equal(disableCoreSkillRes.status, 400, "Document Intelligence core skills must be immutable");
 
     core.authorize(deviceReq).device.scopes = ["status"];
     assert.equal(core.isDeviceApiAllowed(
@@ -115,6 +148,11 @@ async function corePairingTest() {
 
     const localSnapshot = await core.snapshot(localReq);
     assert.equal(localSnapshot.access.token, undefined);
+    assert.equal(localSnapshot.documentIntelligence.status, "ready");
+    assert.equal(localSnapshot.documentIntelligence.skills.length, 7);
+    assert.equal(localSnapshot.documentIntelligence.lastAudit.status, "passed");
+    assert.equal(localSnapshot.skills.filter(({ core }) => core).length, 7);
+    assert.equal(JSON.stringify(localSnapshot.documentIntelligence).includes(rootDir), false);
     const savedConfig = JSON.parse(await readFile(path.join(rootDir, ".rwang-config.json"), "utf8"));
     const queryOnlyReq = request();
     assert.equal(core.isAuthorized(queryOnlyReq, new URL(`https://rwang.test:4173/?token=${savedConfig.access.token}`)), false);

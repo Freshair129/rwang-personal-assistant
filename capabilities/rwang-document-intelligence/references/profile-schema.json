@@ -1,0 +1,74 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RWANG Profile Manifest",
+  "description": "Normative schema for a project view-profile declaration (SPEC-5DRIVEN-01 A2 §4, Appendix A.3). Every profile declares required, optional, AND not_applicable views — absence is never silently interpreted as completeness. There is no fixed standard number of views.",
+  "type": "object",
+  "required": ["profile_id", "views", "trust_hierarchy"],
+  "properties": {
+    "profile_id": {
+      "type": "string",
+      "description": "e.g. 5-driven-domain, flat-prd-sdd, ieee-full, microservices, or a project-specific id",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "views": {
+      "type": "object",
+      "description": "'optional' means: if present, must be fully valid. 'not_applicable' views answer 'declared absent' to Typed Queries and are excluded from coverage denominators — reports MUST NOT render them as coverage.",
+      "required": ["required", "optional", "not_applicable"],
+      "additionalProperties": false,
+      "properties": {
+        "required": { "type": "array", "items": { "$ref": "#/definitions/viewName" } },
+        "optional": { "type": "array", "items": { "$ref": "#/definitions/viewName" } },
+        "not_applicable": { "type": "array", "items": { "$ref": "#/definitions/viewName" } }
+      }
+    },
+    "filename_convention": {
+      "type": "string",
+      "description": "Adapter filename mode (SPEC A4 SS2.1.1). id-prefixed: <ID>--<name>.md (identity hinted by filename). name-only: <name>.md with in-file identity (frontmatter id: / %% @id); binding via registry canonical_path, conflicts fail RWG-109. Default: id-prefixed.",
+      "enum": ["id-prefixed", "name-only"]
+    },
+    "trust_hierarchy": {
+      "type": "array",
+      "description": "Ordered contradiction-resolution sources, strongest first. Profile-owned — Core only executes the declared order. Default: [code, sdd, prd].",
+      "minItems": 1,
+      "items": { "type": "string" }
+    },
+    "check_config": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "visual_model_keywords": {
+          "type": "array",
+          "description": "Check #11 complexity heuristics. Adapter/profile-owned — never hard-coded in Core.",
+          "items": { "type": "string" }
+        },
+        "verification_sources": {
+          "type": "string",
+          "description": "Which verification evidence Check #12 accepts for a requirement",
+          "enum": ["test_md", "automated", "both"]
+        }
+      }
+    },
+    "edge_gates": {
+      "type": "object",
+      "description": "Profile-gated predicates (e.g. guides, applies_to)",
+      "additionalProperties": { "type": "string", "enum": ["enabled", "disabled"] }
+    },
+    "requiredness": {
+      "type": "object",
+      "description": "Per-predicate minimum multiplicity layered over the Core contract's structural cardinality, e.g. visualized_by: '1..*' for complex features in 5-driven-domain",
+      "additionalProperties": { "type": "string", "pattern": "^\\d+\\.\\.(\\d+|\\*)$" }
+    },
+    "domain_mapping": {
+      "type": "string",
+      "description": "microservices only: whether service boundaries map onto the Domain view or Domain is not_applicable",
+      "enum": ["service_boundaries", "not_applicable"]
+    }
+  },
+  "definitions": {
+    "viewName": {
+      "type": "string",
+      "description": "Open set — views are projection lenses, not a fixed list. Common: Domain, Requirement, Feature, Design, Diagram, Verification, Test, Architecture, Implementation, Operations, Release.",
+      "minLength": 1
+    }
+  }
+}

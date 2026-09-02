@@ -1,0 +1,17 @@
+# RWANG view profile — validated against references/profile-schema.json
+# Flat PRD/SDD projects with no Domain- or Feature-Driven organization.
+# Domain and Feature are DECLARED not_applicable (not merely absent):
+# Typed Queries answer "declared absent" and coverage denominators exclude them.
+profile_id: flat-prd-sdd
+views:
+  required: [Requirement, Design, Verification]
+  optional: [Diagram, Release]
+  not_applicable: [Domain, Feature]
+trust_hierarchy: [code, sdd, prd]
+check_config:
+  visual_model_keywords: []
+  verification_sources: automated
+edge_gates:
+  guides: disabled
+  applies_to: enabled
+requiredness: {}

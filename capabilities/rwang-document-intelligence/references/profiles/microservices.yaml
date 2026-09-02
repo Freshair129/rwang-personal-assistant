@@ -1,0 +1,19 @@
+# RWANG view profile — validated against references/profile-schema.json
+# Microservices: per-service documentation. Service boundaries MAY map onto the
+# Domain view (domain_mapping: service_boundaries) instead of declaring it
+# not_applicable — this file chooses the mapping; change domain_mapping to
+# not_applicable (and move Domain into views.not_applicable) for the other choice.
+profile_id: microservices
+views:
+  required: [Requirement, Design, Implementation, Operations]
+  optional: [Domain, Diagram, Verification, Release]   # Domain active here via domain_mapping
+  not_applicable: [Feature]
+domain_mapping: service_boundaries
+trust_hierarchy: [code, sdd, prd]
+check_config:
+  visual_model_keywords: [queue, saga, retry, timeout, event]
+  verification_sources: automated
+edge_gates:
+  guides: disabled
+  applies_to: enabled
+requiredness: {}

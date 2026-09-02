@@ -18,6 +18,7 @@ RWANG คือผู้ช่วยส่วนตัวแบบ local-first �
 - แชร์ tab/window/ทั้งหน้าจอไปมือถือผ่าน WebRTC โดย browser แสดงตัวเลือกและขออนุญาตทุกครั้ง
 - Remote deck จากมือถือควบคุมเฉพาะหน้า RWANG (`navigate`, `scroll`, `spotlight`) ไม่มี OS mouse/keyboard/shell input
 - Schedule เก็บ prompt ตามเวลาและให้ผู้ใช้กด RUN; external tool ทุกตัวยังคงผ่าน approval policy เดิม
+- Document Intelligence เป็น core capability: มี 7 playbooks สำหรับสถาปัตยกรรมเอกสาร, preflight, document graph, traceability และ implementation/exec plan พร้อม self-audit แบบอ่านอย่างเดียว
 
 ## สิ่งที่ต้องมี
 
@@ -105,6 +106,21 @@ Face Profile และ Voice Profile เป็นการเทียบ templa
 ## Schedules
 
 สร้าง routine จาก Loadout โดยกำหนดชื่อ เวลา repeat และ prompt เมื่อถึงเวลา RWANG จะแสดงสถานะ DUE แต่ไม่ดำเนิน external action เอง ผู้ใช้ต้องกด RUN เพื่อส่ง prompt เข้า Assistant การเรียก Home Assistant, webhook หรือ MCP ที่เกิดจาก prompt นั้นยังสร้าง approval card ตามปกติ Schedule ที่พลาดเวลาสามารถตั้งให้รอรอบเปิดครั้งถัดไปหรือข้ามได้
+
+## Document Intelligence core
+
+RWANG รวม [Freshair129/rwang-plugin](https://github.com/Freshair129/rwang-plugin) เป็นความสามารถหลักแบบ local-first โดย pin ที่ release `v1.3.0` และ commit `7354738094432fed22d6e00568315e1a1bd8fe15` สำเนาที่ใช้รันอยู่ใน `capabilities/rwang-document-intelligence/` จึงไม่ดึงหรือรันโค้ดจาก branch `main` อัตโนมัติ
+
+Core pack ประกอบด้วย `doc-architect`, `doc-preflight`, `doc-graph`, `exec-plan`, `implementation-plan`, `rwang-self-audit` และ `subagent-driven` หน้า Loadout แสดง source/version/commit และให้เครื่องหลักกด **RUN SELF AUDIT** เพื่อสแกน annotation และตรวจ graph แบบอ่านอย่างเดียว Agent สามารถอ่าน catalog/playbook และเรียก validator ที่กำหนดไว้ล่วงหน้าได้ แต่ไม่มี arbitrary shell tool
+
+- subprocess ใช้ PowerShell executable และ argument แบบตายตัวโดยไม่ผ่าน shell
+- การสแกนถูกจำกัดอยู่ใน root ของโปรเจกต์ พร้อม timeout และ output cap
+- paired mobile device ใช้ static catalog/playbook ผ่านแชทได้ แต่สั่ง workspace scan, validator หรือ self-audit ไม่ได้
+- ไม่เปิดใช้ Claude auto-hook, `drift-check.ps1` หรือ `bump-version.ps1`
+- เนื้อหาใน repository ที่ถูกสแกนถือเป็น untrusted data และไม่สามารถเปลี่ยน policy ของ Agent ได้
+- core adapter นี้เปิดเฉพาะงานอ่าน/ตรวจสอบ งานสร้างหรือแก้เอกสารยังต้องขออนุญาตและแสดง diff ก่อนนำไปเขียนจริง
+
+Upstream manifest และ README ระบุสัญญาอนุญาต MIT แต่ repository ต้นทางยังไม่มีไฟล์ `LICENSE`; ดู provenance และข้อจำกัดการแจกจ่ายใน `capabilities/rwang-document-intelligence/NOTICE.md`
 
 ## Home Assistant
 

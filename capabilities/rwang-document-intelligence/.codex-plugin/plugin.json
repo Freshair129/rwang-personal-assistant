@@ -1,0 +1,33 @@
+{
+  "name": "rwang-plugin",
+  "version": "1.3.0",
+  "description": "RWANG document-intelligence skills for governed documentation, traceability, and self-audit.",
+  "author": {
+    "name": "GPIC Team"
+  },
+  "license": "MIT",
+  "keywords": [
+    "documentation",
+    "traceability",
+    "document-graph",
+    "governance"
+  ],
+  "skills": "./skills",
+  "interface": {
+    "displayName": "RWANG",
+    "shortDescription": "Governed documentation and traceability skills.",
+    "longDescription": "Use RWANG to audit documentation, inspect traceability annotations, and create evidence-backed implementation plans.",
+    "developerName": "GPIC Team",
+    "category": "Productivity",
+    "capabilities": [
+      "Documentation audit",
+      "Traceability analysis",
+      "Planning"
+    ],
+    "defaultPrompt": [
+      "Run a read-only RWANG self-audit for this repository.",
+      "Check documentation traceability before proposing code changes."
+    ],
+    "brandColor": "#6D4AEF"
+  }
+}

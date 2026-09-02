@@ -34,6 +34,8 @@ const state = {
   lastFace: null,
   lastVoiceprint: null,
   faceVerifyBusy: false,
+  documentAuditResult: null,
+  documentAuditBusy: false,
 };
 
 class ApiError extends Error {
@@ -369,9 +371,17 @@ function setLocalConfigurationMode(local) {
     button.disabled = !local;
     if (!local) button.title = "จัดการ integration ได้จากเครื่องหลักเท่านั้น";
   }
-  for (const button of $$("#skillInventory button, #scheduleList button[data-local-only='true']")) {
-    button.disabled = !local;
-    if (!local) button.title = "จัดการ loadout ได้จากเครื่องหลักเท่านั้น";
+  for (const button of $$("#skillInventory button, button[data-local-only='true']")) {
+    const coreSkill = button.dataset.core === "true";
+    const localOnly = button.dataset.localOnly === "true";
+    const explicitlyLocal = state.rwang?.access?.local === true;
+    const documentAuditLocked = button.id === "documentAuditButton"
+      && (state.documentAuditBusy || state.rwang?.documentIntelligence?.available !== true);
+    button.disabled = coreSkill || (localOnly ? !explicitlyLocal : !local) || documentAuditLocked;
+    if (coreSkill) button.title = "Core skill เป็นความสามารถหลักและไม่สามารถถอดออกได้";
+    else if (localOnly && !explicitlyLocal) button.title = "สั่งงานนี้ได้จากเครื่องหลักเท่านั้น";
+    else if (!local) button.title = "จัดการ loadout ได้จากเครื่องหลักเท่านั้น";
+    else button.removeAttribute("title");
   }
   for (const input of $$('[data-perception-mode]')) input.disabled = !local;
   const remoteMode = state.remoteState?.mode || "idle";
@@ -402,7 +412,8 @@ function renderSkillInventory(skills = []) {
   const inventory = $("#skillInventory");
   inventory.replaceChildren();
   for (const skill of skills) {
-    const card = createElement("article", `skill-item${skill.enabled ? " equipped" : ""}${!skill.configured ? " locked" : ""}`);
+    const equipped = Boolean(skill.core || skill.enabled);
+    const card = createElement("article", `skill-item${equipped ? " equipped" : ""}${!skill.configured && !skill.core ? " locked" : ""}${skill.core ? " core-skill" : ""}`);
     card.dataset.skillId = skill.id;
     card.title = skill.description || skill.name;
     const rune = createElement("span", "skill-rune", skillRune(skill.name));
@@ -410,17 +421,129 @@ function renderSkillInventory(skills = []) {
     const copy = createElement("div");
     copy.append(
       createElement("strong", "", skill.name),
-      createElement("small", "", `${skill.category || "SKILL"} · ${skill.enabled ? "EQUIPPED" : skill.configured ? "AVAILABLE" : "NEEDS CONFIG"} · LV${skill.level || 1}`),
+      createElement("small", "", `${skill.category || (skill.core ? "CORE" : "SKILL")} · ${skill.core ? "PERMANENT CORE" : skill.enabled ? "EQUIPPED" : skill.configured ? "AVAILABLE" : "NEEDS CONFIG"} · LV${skill.level || 1}`),
     );
-    const button = createButton(skill.enabled ? "ON" : "ADD", "", {
-      skillAction: "toggle",
-      skillId: skill.id,
-      enabled: String(Boolean(skill.enabled)),
-    });
-    button.setAttribute("aria-label", `${skill.enabled ? "ถอด" : "ติดตั้ง"} ${skill.name}`);
+    const button = skill.core
+      ? createButton("CORE", "", { core: "true", skillId: skill.id })
+      : createButton(skill.enabled ? "ON" : "ADD", "", {
+        skillAction: "toggle",
+        skillId: skill.id,
+        enabled: String(Boolean(skill.enabled)),
+      });
+    if (skill.core) {
+      button.disabled = true;
+      button.setAttribute("aria-label", `${skill.name} เป็นความสามารถหลักและไม่สามารถถอดออกได้`);
+    } else {
+      button.setAttribute("aria-label", `${skill.enabled ? "ถอด" : "ติดตั้ง"} ${skill.name}`);
+    }
     card.append(rune, copy, button);
     inventory.append(card);
   }
+}
+
+function compactDocumentRuntime(runtime = {}) {
+  const entries = Object.entries(runtime)
+    .filter(([, value]) => value != null && value !== "")
+    .slice(0, 4);
+  if (!entries.length) return "LOCAL CORE";
+  return entries.map(([key, value]) => {
+    const label = String(key).replace(/([a-z])([A-Z])/g, "$1 $2").toUpperCase();
+    const raw = typeof value === "object" ? JSON.stringify(value) : String(value);
+    return `${label}: ${raw.length > 40 ? `${raw.slice(0, 37)}…` : raw}`;
+  }).join(" · ");
+}
+
+function formatDocumentAuditResult(value) {
+  if (value == null) return "ยังไม่มีผลการตรวจสอบ";
+  let text;
+  if (typeof value === "string") text = value;
+  else {
+    try {
+      text = JSON.stringify(value, null, 2);
+    } catch {
+      text = String(value);
+    }
+  }
+  const limit = 12000;
+  return text.length > limit ? `${text.slice(0, limit)}\n… [ตัดผลลัพธ์ที่เกิน ${limit.toLocaleString()} ตัวอักษร]` : text;
+}
+
+function renderDocumentAuditResult(value) {
+  $("#documentAuditResult").textContent = formatDocumentAuditResult(value);
+}
+
+function renderDocumentIntelligence(documentIntelligence = {}) {
+  const present = Boolean(documentIntelligence && Object.keys(documentIntelligence).length);
+  const available = present && documentIntelligence.available !== false;
+  const status = String(documentIntelligence.status || (available ? "ready" : "unavailable"));
+  const statusLabel = status.replace(/[\s_]+/g, " ").toUpperCase();
+  const statusOutput = $("#documentCoreStatus");
+  statusOutput.className = "module-state";
+  if (["ready", "online", "healthy", "ok", "available", "loaded"].includes(status.toLowerCase())) statusOutput.classList.add("online");
+  else if (["error", "failed", "unavailable", "missing"].includes(status.toLowerCase())) statusOutput.classList.add("error");
+  else statusOutput.classList.add("warn");
+  statusOutput.textContent = statusLabel;
+
+  const name = documentIntelligence.name || "RWANG Document Intelligence";
+  const version = String(documentIntelligence.version || "").replace(/^v/i, "");
+  const commit = String(documentIntelligence.commit || "");
+  const sourceUrl = String(documentIntelligence.sourceUrl || "").trim();
+  $("#documentCoreName").textContent = name;
+  $("#documentCoreTitle").textContent = name;
+  $("#documentCoreVersion").textContent = version ? `v${version}` : "—";
+  $("#documentCoreCommit").textContent = commit ? commit.slice(0, 12) : "—";
+  $("#documentCoreCommit").title = commit;
+  $("#documentCoreRuntime").textContent = compactDocumentRuntime(documentIntelligence.runtime || {});
+  $("#documentIntelligenceSlotCopy").textContent = version ? `v${version} · permanent core · 7 skills` : "Permanent core · 7 document skills";
+  setEquipmentSlot("#documentIntelligenceSlot", "#documentIntelligenceSlotStatus", available, available ? "CORE" : "CHECK");
+
+  const source = $("#documentCoreSource");
+  source.removeAttribute("href");
+  source.textContent = sourceUrl || "—";
+  if (sourceUrl) {
+    try {
+      const parsed = new URL(sourceUrl);
+      if (["http:", "https:"].includes(parsed.protocol)) {
+        source.href = parsed.href;
+        const compact = `${parsed.hostname}${parsed.pathname}`.replace(/\/$/, "");
+        source.textContent = compact.length > 52 ? `${compact.slice(0, 49)}…` : compact;
+        source.title = parsed.href;
+      }
+    } catch {}
+  }
+
+  const skills = Array.isArray(documentIntelligence.skills) ? documentIntelligence.skills.slice(0, 7) : [];
+  $("#documentCapabilityCount").textContent = String(skills.length);
+  const grid = $("#documentCapabilityGrid");
+  grid.replaceChildren();
+  for (let index = 0; index < 7; index += 1) {
+    const skill = skills[index];
+    const card = createElement("article", `document-capability${skill ? " ready" : " empty"}`);
+    card.setAttribute("role", "listitem");
+    card.append(createElement("span", "document-capability-index", `D${index + 1}`));
+    const copy = createElement("div");
+    copy.append(
+      createElement("strong", "", skill?.name || "EMPTY CAPABILITY SLOT"),
+      createElement("small", "", skill?.description || "รอข้อมูลจาก core manifest"),
+    );
+    card.append(copy, createElement("span", "document-capability-mode", String(skill?.mode || (skill ? "CORE" : "—")).toUpperCase()));
+    if (skill?.id) card.dataset.capabilityId = skill.id;
+    grid.append(card);
+  }
+
+  if (state.documentAuditResult == null && documentIntelligence.lastAudit != null) {
+    renderDocumentAuditResult(documentIntelligence.lastAudit);
+  } else if (state.documentAuditResult != null) {
+    renderDocumentAuditResult(state.documentAuditResult);
+  }
+  const explicitlyLocal = state.rwang?.access?.local === true;
+  const auditButton = $("#documentAuditButton");
+  auditButton.disabled = !explicitlyLocal || !available || state.documentAuditBusy;
+  auditButton.textContent = state.documentAuditBusy ? "AUDITING…" : "RUN SELF AUDIT";
+  auditButton.setAttribute("aria-busy", String(state.documentAuditBusy));
+  $("#documentAuditHint").textContent = explicitlyLocal
+    ? "ตรวจ manifest, source pin และสถานะเอกสารบนเครื่องหลักเท่านั้น"
+    : "READ ONLY · Self-audit ถูกล็อกบนอุปกรณ์ remote";
 }
 
 function formatScheduleDate(value, timeZone = "Asia/Bangkok") {
@@ -494,6 +617,7 @@ function renderLoadout(rwang) {
   const rankCaption = $("#loadoutXpBar + small");
   if (rankCaption) rankCaption.textContent = `${loadout.equipped || 0} / ${loadout.capacity || rwang.skills?.length || 0} SKILLS EQUIPPED`;
   $("#equippedCount").textContent = String(loadout.equipped || 0);
+  $("#equippedCapacity").textContent = String(loadout.capacity || rwang.skills?.length || 0);
 
   const enrollments = state.perception?.listEnrollments?.() || { face: [], voice: [] };
   setEquipmentSlot("#gestureSlot", "#gestureSlotStatus", features.gesture && skillById("gesture_control")?.enabled, features.gesture ? "READY" : "OFF");
@@ -504,8 +628,10 @@ function renderLoadout(rwang) {
   setEquipmentSlot("#homeAssistantSlot", "#homeAssistantSlotStatus", rwang.homeAssistant?.state === "online", rwang.homeAssistant?.state === "online" ? "ONLINE" : rwang.homeAssistant?.configured ? "CHECK" : "CONFIG");
   setEquipmentSlot("#mcpAgentSlot", "#mcpAgentSlotStatus", rwang.mcpServers?.some((server) => server.state === "online"), rwang.mcpServers?.length ? "READY" : "EMPTY");
   setEquipmentSlot("#webhookSlot", "#webhookSlotStatus", rwang.webhooks?.some((hook) => hook.enabled), rwang.webhooks?.length ? "READY" : "EMPTY");
+  renderDocumentIntelligence(rwang.documentIntelligence || {});
 
-  $("#skillCount").textContent = String(rwang.skills?.filter((skill) => skill.enabled).length || 0);
+  $("#skillCount").textContent = String(rwang.skills?.filter((skill) => skill.enabled || skill.core).length || 0);
+  $("#skillCapacity").textContent = String(rwang.skills?.length || 0);
   renderSkillInventory(rwang.skills || []);
   renderSchedules(rwang.schedules || [], rwang.scheduler || {});
 
@@ -1633,6 +1759,7 @@ async function handleSkillInventoryClick(event) {
   if (state.rwang?.access?.local === false) return showToast("จัดการ skills ได้จากเครื่องหลักเท่านั้น");
   const skill = state.rwang?.skills?.find((item) => item.id === button.dataset.skillId);
   if (!skill) return;
+  if (skill.core) return showToast(`${skill.name} เป็น Core Skill และไม่สามารถถอดออกได้`);
   button.disabled = true;
   try {
     await postConfig({ section: "skills", id: skill.id, enabled: !skill.enabled }, `${skill.name}: ${skill.enabled ? "ถอดออกจาก loadout" : "ติดตั้งใน loadout"} แล้ว`);
@@ -1640,6 +1767,35 @@ async function handleSkillInventoryClick(event) {
     showToast(`Skill: ${error.message}`);
   } finally {
     button.disabled = false;
+  }
+}
+
+async function runDocumentSelfAudit() {
+  if (state.rwang?.access?.local !== true) {
+    showToast("Document Intelligence self-audit สั่งได้จากเครื่องหลักเท่านั้น");
+    return;
+  }
+  if (state.documentAuditBusy || state.rwang?.documentIntelligence?.available !== true) return;
+  state.documentAuditBusy = true;
+  renderDocumentIntelligence(state.rwang?.documentIntelligence || {});
+  renderDocumentAuditResult("กำลังตรวจ manifest, source pin และสถานะเอกสาร…");
+  try {
+    const payload = await apiFetch("/api/rwang/document-intelligence", {
+      method: "POST",
+      body: { action: "self-audit" },
+    });
+    if (!payload?.ok) throw new Error(payload?.error || "Self-audit ไม่ผ่าน");
+    state.documentAuditResult = payload.result ?? { ok: true };
+    renderDocumentAuditResult(state.documentAuditResult);
+    showToast("Document Intelligence self-audit เสร็จแล้ว");
+    await refreshStatus({ silent: true });
+  } catch (error) {
+    state.documentAuditResult = { ok: false, error: error.message };
+    renderDocumentAuditResult(state.documentAuditResult);
+    showToast(`Document Intelligence: ${error.message}`, 5200);
+  } finally {
+    state.documentAuditBusy = false;
+    renderDocumentIntelligence(state.rwang?.documentIntelligence || {});
   }
 }
 
@@ -1998,7 +2154,7 @@ async function rotateAccessToken() {
 function setupPwa() {
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", () => navigator.serviceWorker
-      .register("/service-worker.js?v=7", { updateViaCache: "none" })
+      .register("/service-worker.js?v=8", { updateViaCache: "none" })
       .catch(() => {}));
   }
   window.addEventListener("beforeinstallprompt", (event) => {
@@ -2142,6 +2298,8 @@ function bindEvents() {
 
   $("#skillInventory").addEventListener("click", handleSkillInventoryClick);
   $("#manageSkillsButton").addEventListener("click", () => openSettings("mcp"));
+  $("#documentIntelligenceSlot").addEventListener("click", () => $("#documentCorePanel").scrollIntoView({ behavior: "smooth", block: "start" }));
+  $("#documentAuditButton").addEventListener("click", () => void runDocumentSelfAudit());
   for (const input of $$('[data-perception-mode]')) input.addEventListener("change", () => void handlePerceptionModeChange());
   $("#startPerceptionButton").addEventListener("click", () => void startPerception());
   $("#stopPerceptionButton").addEventListener("click", () => void stopPerception());

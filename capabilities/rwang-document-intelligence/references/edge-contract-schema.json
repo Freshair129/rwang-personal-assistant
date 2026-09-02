@@ -1,0 +1,134 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RWANG Edge Contract",
+  "description": "Normative schema for one versioned Edge Contract under docs/registry/edge-contracts/<predicate>@<semver>.yaml (CR-2026-08-20-01 A2 §2.2). Contract definitions live ONLY here — never per node. contract_version is the only version field name.",
+  "type": "object",
+  "required": [
+    "contract_id",
+    "contract_version",
+    "predicate",
+    "from_type",
+    "to_type",
+    "cardinality",
+    "status",
+    "semantic_hash",
+    "provenance"
+  ],
+  "properties": {
+    "contract_id": {
+      "type": "string",
+      "description": "Stable contract identity, e.g. edge:feature_visualized_by_diagram",
+      "pattern": "^edge:[a-z0-9_]+$"
+    },
+    "contract_version": {
+      "type": "string",
+      "description": "Semver. Breaking changes (endpoint types, direction, predicate meaning, required fields, cardinality, ID namespace) require a major bump plus migration evidence (RWG-205 otherwise).",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "predicate": {
+      "type": "string",
+      "description": "Canonical predicate set (graph schema 2.0.0). 'stale' is a status, not a predicate. 'derived_from' is reserved and not yet active.",
+      "enum": [
+        "specifies",
+        "defines",
+        "contains",
+        "implements",
+        "designs",
+        "tests",
+        "verifies",
+        "depends_on",
+        "references",
+        "exposes",
+        "persists_to",
+        "contradicts",
+        "guides",
+        "visualized_by",
+        "verified_by",
+        "refines",
+        "supersedes",
+        "applies_to"
+      ]
+    },
+    "from_type": {
+      "type": "array",
+      "description": "Allowed source node types. Note: 'implements' contracts MUST list code_file only.",
+      "minItems": 1,
+      "items": { "$ref": "#/definitions/nodeType" }
+    },
+    "to_type": {
+      "type": "array",
+      "description": "Allowed target node types",
+      "minItems": 1,
+      "items": { "$ref": "#/definitions/nodeType" }
+    },
+    "labels": {
+      "type": "object",
+      "description": "Display-only readings of the SAME edge (excluded from semantic_hash). Inverse navigation is a query — never a second reverse edge.",
+      "additionalProperties": false,
+      "properties": {
+        "forward": { "type": "string" },
+        "inverse": { "type": "string" }
+      }
+    },
+    "payload_schema": {
+      "type": "object",
+      "description": "JSON Schema for the edge payload; empty object means no payload allowed"
+    },
+    "cardinality": {
+      "type": "string",
+      "description": "Structural multiplicity bound, e.g. 0..*, 0..1, 1..*. Core cardinality is structural; requiredness (e.g. 'every complex feature needs a diagram') belongs to the profile, not the contract.",
+      "pattern": "^\\d+\\.\\.(\\d+|\\*)$"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["proposed", "approved", "deprecated"]
+    },
+    "semantic_hash": {
+      "type": "string",
+      "description": "sha256 of the normalized contract (SPEC-5DRIVEN-01 §2.3: drop labels/provenance/comments, sort keys, canonical JSON, SHA-256)",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "provenance": { "$ref": "#/definitions/provenance" }
+  },
+  "definitions": {
+    "nodeType": {
+      "type": "string",
+      "enum": [
+        "document",
+        "section",
+        "requirement",
+        "domain",
+        "feature",
+        "code_file",
+        "component",
+        "test",
+        "test_spec",
+        "diagram",
+        "api_endpoint",
+        "db_table",
+        "release"
+      ]
+    },
+    "provenance": {
+      "type": "object",
+      "description": "Audit metadata (CR §2.5). Never participates in semantic_hash or exact-set reconciliation.",
+      "required": ["actor_type", "actor_id", "tool", "tool_version", "timestamp", "source_ref"],
+      "properties": {
+        "actor_type": { "type": "string", "enum": ["agent", "human", "ci"] },
+        "actor_id": { "type": "string" },
+        "session_id": { "type": "string" },
+        "run_id": { "type": "string" },
+        "tool": { "type": "string" },
+        "tool_version": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "source_ref": { "type": "string" },
+        "approval_ref": { "type": ["string", "null"] }
+      },
+      "if": { "properties": { "actor_type": { "const": "agent" } } },
+      "then": {
+        "required": ["approval_ref"],
+        "properties": { "approval_ref": { "type": "string", "minLength": 1 } }
+      }
+    }
+  }
+}

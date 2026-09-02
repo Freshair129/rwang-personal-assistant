@@ -1,4 +1,4 @@
-const CACHE = "rwang-shell-v7-security";
+const CACHE = "rwang-shell-v8-document-intelligence";
 const SHELL = [
   "/",
   "/index.html",

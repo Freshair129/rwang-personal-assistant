@@ -160,7 +160,7 @@
           <section class="loadout-panel equipment-panel">
             <header class="loadout-panel-head">
               <div><span class="panel-code">EQ</span><div><p class="kicker">EQUIPPED MODULES</p><h2>Active loadout</h2></div></div>
-              <span class="inventory-count"><b id="equippedCount">7</b>/10</span>
+              <span class="inventory-count"><b id="equippedCount">7</b>/<span id="equippedCapacity">10</span></span>
             </header>
 
             <div class="slot-group">
@@ -197,7 +197,7 @@
             </div>
 
             <div class="slot-group">
-              <div class="slot-group-label"><span>CONNECTIONS</span><small>03 SLOTS</small></div>
+              <div class="slot-group-label"><span>CONNECTIONS</span><small>04 SLOTS</small></div>
               <button class="equipment-slot" id="homeAssistantSlot" type="button" data-loadout-slot="home-assistant" data-open-settings="home">
                 <span class="slot-index">C1</span>
                 <span class="slot-copy"><strong>Home Assistant</strong><small>Smart home bridge</small></span>
@@ -213,13 +213,18 @@
                 <span class="slot-copy"><strong>IoT Webhooks</strong><small>Approved HTTP actions</small></span>
                 <span class="slot-state" id="webhookSlotStatus">EMPTY</span>
               </button>
+              <button class="equipment-slot equipped core-module-slot" id="documentIntelligenceSlot" type="button" data-loadout-slot="document-intelligence" aria-controls="documentCorePanel">
+                <span class="slot-index">C4</span>
+                <span class="slot-copy"><strong>Document Intelligence</strong><small id="documentIntelligenceSlotCopy">Permanent core · 7 document skills</small></span>
+                <span class="slot-state" id="documentIntelligenceSlotStatus">CORE</span>
+              </button>
             </div>
           </section>
 
           <section class="loadout-panel skills-panel" aria-labelledby="skillsTitle">
             <header class="loadout-panel-head compact">
               <div><span class="panel-code">SK</span><div><p class="kicker">SKILL INVENTORY</p><h2 id="skillsTitle">Capabilities</h2></div></div>
-              <span class="inventory-count"><b id="skillCount">6</b>/10</span>
+              <span class="inventory-count"><b id="skillCount">6</b>/<span id="skillCapacity">10</span></span>
             </header>
             <div class="skill-inventory" id="skillInventory">
               <article class="skill-item equipped" data-skill-id="voice-command">
@@ -258,6 +263,49 @@
         </aside>
 
         <section class="loadout-workbench" aria-label="แผงตั้งค่าความสามารถ">
+          <section class="loadout-panel document-core-panel" id="documentCorePanel" aria-labelledby="documentCoreTitle">
+            <header class="loadout-panel-head document-core-head">
+              <div><span class="panel-code core-code">C4</span><div><p class="kicker">CORE CAPABILITY / DOCUMENT INTELLIGENCE</p><h2 id="documentCoreTitle">RWANG Document Intelligence</h2></div></div>
+              <output class="module-state" id="documentCoreStatus" aria-live="polite">DISCOVERING</output>
+            </header>
+            <div class="document-core-body">
+              <div class="document-core-manifest">
+                <div class="document-core-identity">
+                  <span class="document-core-mark" aria-hidden="true">DI</span>
+                  <div>
+                    <p class="kicker">PINNED CORE LOADOUT</p>
+                    <h3 id="documentCoreName">Document Intelligence</h3>
+                    <p>ความสามารถตรวจเอกสาร วิเคราะห์ traceability และเรียกใช้ playbook ที่ติดตั้งเป็นแกนหลักของอาหวัง จึงไม่สามารถถอดออกจาก Loadout ได้</p>
+                  </div>
+                </div>
+                <dl class="document-core-facts">
+                  <div><dt>VERSION</dt><dd id="documentCoreVersion">—</dd></div>
+                  <div><dt>SOURCE</dt><dd><a id="documentCoreSource" rel="noreferrer" target="_blank">—</a></dd></div>
+                  <div><dt>SOURCE SHA</dt><dd id="documentCoreCommit">—</dd></div>
+                  <div><dt>RUNTIME</dt><dd id="documentCoreRuntime">LOCAL CORE</dd></div>
+                </dl>
+              </div>
+
+              <section class="document-capabilities" aria-labelledby="documentCapabilitiesTitle">
+                <header>
+                  <div><p class="kicker">CORE SKILL MATRIX</p><h3 id="documentCapabilitiesTitle">Seven capabilities</h3></div>
+                  <span class="inventory-count"><b id="documentCapabilityCount">0</b>/7</span>
+                </header>
+                <div class="document-capability-grid" id="documentCapabilityGrid" role="list" aria-live="polite"></div>
+              </section>
+            </div>
+            <div class="document-audit-console">
+              <div class="document-audit-copy">
+                <p class="kicker">LOCAL INTEGRITY CHECK</p>
+                <strong>Core self-audit</strong>
+                <small id="documentAuditHint">ตรวจ manifest, source pin และสถานะเอกสารบนเครื่องหลักเท่านั้น</small>
+              </div>
+              <button class="primary-button document-audit-button" id="documentAuditButton" type="button" data-local-only="true">RUN SELF AUDIT</button>
+              <pre class="document-audit-result" id="documentAuditResult" role="status" aria-live="polite" aria-label="ผลการตรวจสอบ Document Intelligence" tabindex="0">ยังไม่มีผลการตรวจสอบ</pre>
+            </div>
+            <p class="panel-footnote">C4 เป็น core module แบบ read-only ใน Skill Inventory · อุปกรณ์ remote ดูสถานะได้ แต่สั่ง self-audit ไม่ได้</p>
+          </section>
+
           <section class="loadout-panel perception-panel" aria-labelledby="perceptionTitle">
             <header class="loadout-panel-head">
               <div><span class="panel-code">PX</span><div><p class="kicker">PERCEPTION LAB</p><h2 id="perceptionTitle">Camera & identity</h2></div></div>

@@ -1,0 +1,23 @@
+# RWANG view profile — validated against references/profile-schema.json
+# Reference profile for 5-Driven Architecture projects (Domain/Feature/Spec/Test/Diagram-Driven)
+profile_id: 5-driven-domain
+# name-only: files are <name>.md (e.g. queue_management.md); identity travels
+# in-file (frontmatter id: / %% @id) and binds through registry canonical_path.
+filename_convention: name-only
+views:
+  required: [Domain, Requirement, Feature, Diagram, Verification]
+  optional: [Implementation, Operations, Release]   # if present, must be fully valid
+  not_applicable: []
+# Pre-implementation phases are diagram/test-first; code wins only once it exists.
+trust_hierarchy: [code, test_spec, diagram, feature_spec, prd]
+check_config:
+  # Check #11 complexity heuristics — adapter-owned, never hard-coded in Core
+  visual_model_keywords: [ws, emit, broadcast, buffer, timeout, session]
+  verification_sources: both        # requirements need .test.md AND automated evidence
+edge_gates:
+  guides: enabled
+  applies_to: enabled
+requiredness:
+  # layered over the Core contract's structural cardinality (0..*)
+  visualized_by: "1..*"             # complex features (per keywords) must have a diagram
+  verified_by: "1..*"

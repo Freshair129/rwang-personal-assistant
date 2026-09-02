@@ -1,0 +1,16 @@
+# RWANG view profile — validated against references/profile-schema.json
+# IEEE Full Split (SRS/SDD/STP/SAD/OCD) governance-heavy projects.
+profile_id: ieee-full
+views:
+  required: [Requirement, Design, Test, Architecture]
+  optional: [Diagram, Operations, Release]
+  not_applicable: [Domain, Feature]
+trust_hierarchy: [code, sdd, srs]
+check_config:
+  visual_model_keywords: []
+  verification_sources: both
+edge_gates:
+  guides: disabled
+  applies_to: enabled
+requiredness:
+  verified_by: "1..*"

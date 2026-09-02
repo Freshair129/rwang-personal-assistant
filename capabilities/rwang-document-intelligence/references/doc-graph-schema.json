@@ -1,0 +1,237 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RWANG Document Graph",
+  "description": "Schema 2.0.0 for docs/.doc-graph.json — a GENERATED PROJECTION of the Entity Registry plus discovered source artifacts (CR-2026-08-20-01 A2). It is never a source of truth and never hand-edited. Graphs written against schema 1.x are readable in explicit 'legacy' mode only and MUST NOT be promoted as current evidence. Breaking changes vs 1.x: node id pattern gains dom|feat|diag|testspec|rel prefixes; node types gain domain/feature/test_spec/diagram/release; edge type 'stale' removed (staleness is edge status, not a predicate); edges require contract_id/contract_version/semantic_hash; header requires source_ref + provenance; single writer.",
+  "type": "object",
+  "required": ["version", "generated_by", "generated_at", "source_ref", "provenance", "nodes", "edges"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "Schema version (semver). This schema describes 2.x graphs.",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "generated_by": {
+      "type": "string",
+      "description": "Single writer: only rwang:doc-graph writes the projection. doc-architect requests initialization through it.",
+      "enum": ["rwang:doc-graph"]
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of generation"
+    },
+    "source_ref": {
+      "type": "string",
+      "description": "Checkout anchor this projection was generated from: commit SHA, or a content-digest of the full discovery set in no-VCS mode. Check #16 verifies it matches the current checkout."
+    },
+    "provenance": { "$ref": "#/definitions/provenance" },
+    "template_id": {
+      "type": "string",
+      "description": "Which template was used (from templates.json)"
+    },
+    "profile_id": {
+      "type": "string",
+      "description": "Active view profile (validated against references/profile-schema.json)"
+    },
+    "stats": {
+      "type": "object",
+      "properties": {
+        "total_nodes": { "type": "integer" },
+        "total_edges": { "type": "integer" },
+        "stale_edges": { "type": "integer" },
+        "contradiction_edges": { "type": "integer" },
+        "coverage": {
+          "type": "object",
+          "description": "Derived from reconciled stable-ID sets — never free-form percentage strings. Views the profile declares not_applicable are excluded from denominators ('declared absent' is not coverage).",
+          "additionalProperties": { "$ref": "#/definitions/coverageSet" },
+          "properties": {
+            "requirements_with_code": { "$ref": "#/definitions/coverageSet" },
+            "requirements_with_tests": { "$ref": "#/definitions/coverageSet" },
+            "code_with_docs": { "$ref": "#/definitions/coverageSet" }
+          }
+        }
+      }
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "type"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique node identifier. Format: <type>:<identifier>. Requirement IDs are namespaced (req:<namespace>:<ID>).",
+            "pattern": "^(doc|sec|req|code|comp|test|api|db|dom|feat|diag|testspec|rel):.+"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "document",
+              "section",
+              "requirement",
+              "domain",
+              "feature",
+              "code_file",
+              "component",
+              "test",
+              "test_spec",
+              "diagram",
+              "api_endpoint",
+              "db_table",
+              "release"
+            ]
+          },
+          "label": {
+            "type": "string",
+            "description": "Human-readable label"
+          },
+          "path": {
+            "type": "string",
+            "description": "File path (relative to project root)"
+          },
+          "defined_in": {
+            "type": "string",
+            "description": "Document where this node is defined"
+          },
+          "section": {
+            "type": "string",
+            "description": "Section reference (e.g., §5.1)"
+          },
+          "hash": {
+            "type": "string",
+            "description": "Content hash for change detection"
+          },
+          "doc_version": {
+            "type": "string",
+            "description": "Machine-readable document version for governed document nodes. Content-hash change without a bump fails RWG-108.",
+            "pattern": "^\\d+\\.\\d+\\.\\d+$"
+          },
+          "doc_status": {
+            "type": "string",
+            "enum": ["draft", "review", "approved", "deprecated", "superseded"],
+            "description": "When a supersedes edge targets this document, doc_status MUST be 'superseded'."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["current", "changed", "stale", "new", "deleted"],
+            "description": "Node status relative to last scan"
+          },
+          "last_verified": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "When this node was last verified as current"
+          },
+          "annotations": {
+            "type": "object",
+            "description": "Structured annotations found in this code file",
+            "properties": {
+              "@req": { "type": "array", "items": { "type": "string" } },
+              "@spec": { "type": "array", "items": { "type": "string" } },
+              "@designs": { "type": "array", "items": { "type": "string" } },
+              "@tested": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        }
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["from", "to", "type", "contract_id", "contract_version", "semantic_hash"],
+        "properties": {
+          "from": {
+            "type": "string",
+            "description": "Source node ID (the from-side of the contract's canonical direction — inverse navigation is a query, never a second reverse edge)"
+          },
+          "to": {
+            "type": "string",
+            "description": "Target node ID"
+          },
+          "type": {
+            "type": "string",
+            "description": "Canonical predicate. 'stale' is NOT a predicate (use status). 'implements' edges MUST originate from code_file nodes; generated artifacts are never evidence sources.",
+            "enum": [
+              "specifies",
+              "defines",
+              "contains",
+              "implements",
+              "designs",
+              "tests",
+              "verifies",
+              "depends_on",
+              "references",
+              "exposes",
+              "persists_to",
+              "contradicts",
+              "guides",
+              "visualized_by",
+              "verified_by",
+              "refines",
+              "supersedes",
+              "applies_to"
+            ]
+          },
+          "contract_id": {
+            "type": "string",
+            "description": "Reference to the governing contract in docs/registry/edge-contracts/",
+            "pattern": "^edge:[a-z0-9_]+$"
+          },
+          "contract_version": {
+            "type": "string",
+            "pattern": "^\\d+\\.\\d+\\.\\d+$"
+          },
+          "semantic_hash": {
+            "type": "string",
+            "description": "sha256 of the NORMALIZED CONTRACT VERSION this edge was validated against (not a hash of the edge payload) — SPEC-5DRIVEN-01 §2.3",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["current", "stale", "contradiction"],
+            "description": "Edge health status. Staleness lives here — it is a state on the semantic edge, not an edge type."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Explanation for stale/contradiction status. Required for contradicts edges."
+          },
+          "source": {
+            "type": "string",
+            "enum": ["annotation", "frontmatter", "manifest", "scan", "manual"],
+            "description": "The single from-side assertion source (RWG-207/208). 'manual' edges still pass full contract validation — the value marks provenance, not a bypass."
+          },
+          "payload": {
+            "type": "object",
+            "description": "Optional relationship data, validated against the contract's payload_schema"
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "coverageSet": {
+      "type": "object",
+      "required": ["covered", "total"],
+      "properties": {
+        "covered": { "type": "integer", "minimum": 0 },
+        "total": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "description": "Audit metadata (CR §2.5). session_id/actor_id/run_id/timestamp never enter semantic_hash or exact-set reconciliation — regenerating the same checkout from another session reconciles identically.",
+      "required": ["actor_type", "actor_id", "tool", "tool_version", "timestamp", "source_ref"],
+      "properties": {
+        "actor_type": { "type": "string", "enum": ["agent", "human", "ci"] },
+        "actor_id": { "type": "string" },
+        "session_id": { "type": "string" },
+        "run_id": { "type": "string" },
+        "tool": { "type": "string" },
+        "tool_version": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "source_ref": { "type": "string" },
+        "approval_ref": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

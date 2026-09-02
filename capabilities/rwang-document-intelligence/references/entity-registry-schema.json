@@ -1,0 +1,139 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RWANG Entity Registry Entry",
+  "description": "Normative schema for one entry under docs/registry/entities/** (CR-2026-08-20-01 A2 §2.3). The Registry is the identity source of truth; the graph is a projection of it. Entries are authored as YAML and validated against this schema after parsing.",
+  "type": "object",
+  "required": ["entity_id", "entity_type", "canonical_path", "status", "introduced_by"],
+  "properties": {
+    "entity_id": {
+      "type": "string",
+      "description": "Stable ID in a registered namespace",
+      "pattern": "^(doc|sec|req|code|comp|test|api|db|dom|feat|diag|testspec|rel):.+"
+    },
+    "entity_type": {
+      "type": "string",
+      "description": "Must exist in docs/registry/entity-types.yaml (closed world)",
+      "enum": [
+        "document",
+        "section",
+        "requirement",
+        "domain",
+        "feature",
+        "code_file",
+        "component",
+        "test",
+        "test_spec",
+        "diagram",
+        "api_endpoint",
+        "db_table",
+        "release"
+      ]
+    },
+    "canonical_path": {
+      "type": "string",
+      "description": "Path of the entity's source artifact, relative to project root"
+    },
+    "label": {
+      "type": "string",
+      "description": "Human display name (e.g. queue_management). Data, never identity: labels may change freely; IDs may not. In name-only filename mode the filename is derived from this label."
+    },
+    "parent_domain_id": {
+      "type": "string",
+      "description": "Required for features. Domain membership is declared here, never inferred from filename letters or sequence positions.",
+      "pattern": "^dom:.+"
+    },
+    "status": {
+      "type": "string",
+      "description": "Lifecycle status. 'draft' permits incomplete required views during staged rollout without disabling gates project-wide.",
+      "enum": ["draft", "active", "deprecated", "superseded"]
+    },
+    "doc_version": {
+      "type": "string",
+      "description": "Semver of the backing document, for document-backed entities. A content change without a bump fails RWG-108.",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "nested": {
+      "type": "object",
+      "description": "Nested registrations owned by this entity (CR §2.3.2) — typically requirements/diagrams/test specs under a feature",
+      "additionalProperties": false,
+      "properties": {
+        "requirements": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "path"],
+            "properties": {
+              "id": { "type": "string", "pattern": "^req:.+" },
+              "path": { "type": "string" }
+            }
+          }
+        },
+        "diagrams": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "path", "diagram_type"],
+            "properties": {
+              "id": { "type": "string", "pattern": "^diag:.+" },
+              "path": { "type": "string" },
+              "diagram_type": { "type": "string", "enum": ["sequence", "state", "component"] }
+            }
+          }
+        },
+        "test_specs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "path"],
+            "properties": {
+              "id": { "type": "string", "pattern": "^testspec:.+" },
+              "path": { "type": "string" },
+              "test_type": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "aliases": {
+      "type": "array",
+      "description": "Equivalent stable IDs in other namespaces (CR §2.3.4). Two unlinked namespaces for the same entity fail reconciliation; declare an alias here or connect distinct entities with a 'refines' edge.",
+      "items": { "type": "string" }
+    },
+    "introduced_by": { "$ref": "#/definitions/provenance" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "entity_type": { "const": "feature" } } },
+      "then": { "required": ["parent_domain_id"] }
+    }
+  ],
+  "definitions": {
+    "provenance": {
+      "type": "object",
+      "description": "Audit metadata (CR §2.5). Never participates in semantic_hash or exact-set reconciliation.",
+      "required": ["actor_type", "actor_id", "tool", "tool_version", "timestamp", "source_ref"],
+      "properties": {
+        "actor_type": { "type": "string", "enum": ["agent", "human", "ci"] },
+        "actor_id": { "type": "string" },
+        "session_id": { "type": "string", "description": "Opaque, harness-specific" },
+        "run_id": { "type": "string" },
+        "tool": { "type": "string" },
+        "tool_version": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "source_ref": {
+          "type": "string",
+          "description": "Commit SHA, or content-digest of the discovery set in no-VCS mode"
+        },
+        "approval_ref": {
+          "type": ["string", "null"],
+          "description": "CR/approval reference. REQUIRED (non-null) when actor_type is 'agent' — otherwise the mutation fails RWG-107."
+        }
+      },
+      "if": { "properties": { "actor_type": { "const": "agent" } } },
+      "then": {
+        "required": ["approval_ref"],
+        "properties": { "approval_ref": { "type": "string", "minLength": 1 } }
+      }
+    }
+  }
+}
