@@ -1,0 +1,16 @@
+* text=auto
+.gitattributes text eol=lf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+*.js text eol=lf
+*.mjs text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+public/vendor/*.mjs binary
+public/vendor/wasm/*.js binary
+public/vendor/*.task binary
+public/vendor/wasm/*.wasm binary

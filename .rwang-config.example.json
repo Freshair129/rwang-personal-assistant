@@ -1,0 +1,68 @@
+{
+  "version": 3,
+  "assistant": {
+    "name": "RWANG",
+    "wakeWord": "อาหวัง",
+    "language": "th-TH",
+    "defaultModel": "",
+    "autoSpeak": true
+  },
+  "access": {
+    "token": "GENERATED_ON_FIRST_START",
+    "devices": []
+  },
+  "homeAssistant": {
+    "enabled": false,
+    "baseUrl": "http://homeassistant.local:8123",
+    "token": ""
+  },
+  "features": {
+    "gesture": true,
+    "faceRecognition": true,
+    "voiceRecognition": true,
+    "screenShare": true,
+    "mobileRemote": true
+  },
+  "skillStates": {
+    "core_status": true,
+    "scheduler": true,
+    "smart_home": true,
+    "mcp_agents": true,
+    "iot_webhooks": true,
+    "screen_share": true,
+    "gesture_control": true,
+    "face_presence": true,
+    "voice_identity": true,
+    "mobile_remote": true
+  },
+  "scheduler": {
+    "enabled": true,
+    "timeZone": "Asia/Bangkok",
+    "missedRun": "next",
+    "requireApproval": true
+  },
+  "schedules": [],
+  "mcpServers": [
+    {
+      "id": "example-http",
+      "name": "Local MCP",
+      "enabled": false,
+      "transport": "http",
+      "url": "http://127.0.0.1:3000/mcp",
+      "headers": {},
+      "command": "",
+      "args": [],
+      "cwd": ""
+    }
+  ],
+  "webhooks": [
+    {
+      "id": "example-iot",
+      "name": "Example IoT endpoint",
+      "enabled": false,
+      "url": "http://192.168.1.50/api/action",
+      "method": "POST",
+      "headers": {}
+    }
+  ]
+}

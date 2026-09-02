@@ -1,0 +1,571 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#071317">
+  <meta name="description" content="RWANG ผู้ช่วยส่วนตัวแบบ local ที่คุยด้วยเสียง ควบคุม Smart Home และเชื่อม MCP ได้">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+  <title>RWANG · Local Personal Assistant</title>
+</head>
+<body>
+  <div class="scanline" aria-hidden="true"></div>
+
+  <header class="topbar">
+    <a class="brand" href="#assistant" aria-label="RWANG home">
+      <span class="brand-glyph" aria-hidden="true">R</span>
+      <span>
+        <strong>RWANG</strong>
+        <small>อาหวัง · LOCAL PERSONAL INTELLIGENCE</small>
+      </span>
+    </a>
+    <nav class="primary-nav" aria-label="พื้นที่ทำงาน">
+      <button class="nav-button active" data-view="assistant" type="button">ASSISTANT</button>
+      <button class="nav-button" data-view="loadout" type="button">LOADOUT</button>
+      <button class="nav-button" data-view="systems" type="button">SYSTEMS</button>
+    </nav>
+    <div class="top-actions">
+      <div class="connection" id="connection">
+        <i></i>
+        <span><strong id="ollamaState">กำลังตรวจสอบ</strong><small id="versionLabel">OLLAMA —</small></span>
+      </div>
+      <button class="icon-button" id="installButton" type="button" hidden aria-label="ติดตั้งแอป">↓</button>
+      <button class="settings-button" id="settingsButton" type="button"><span>⚙</span> SETTINGS</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="view assistant-view active" id="assistantView">
+      <aside class="presence-panel">
+        <div class="presence-head">
+          <p class="kicker">VOICE CORE / <span id="secureLabel">LOCAL</span></p>
+          <span class="state-chip" id="coreState">STANDBY</span>
+        </div>
+
+        <button class="core" id="micButton" type="button" aria-label="เริ่มรับคำสั่งเสียง">
+          <span class="core-ring ring-a"></span>
+          <span class="core-ring ring-b"></span>
+          <span class="core-ring ring-c"></span>
+          <span class="core-center"><b>R</b><i></i></span>
+        </button>
+
+        <div class="presence-copy">
+          <p class="signal-text" id="micLabel">แตะวงแหวนเพื่อพูด</p>
+          <p id="coreSub">RWANG พร้อมรับคำสั่งบนเครื่องนี้</p>
+        </div>
+
+        <label class="switch-row" for="wakeToggle">
+          <span><strong>Wake mode</strong><small>เรียก “<b id="wakeWordDisplay">อาหวัง</b>” ขณะเปิดหน้านี้</small></span>
+          <input id="wakeToggle" type="checkbox">
+          <i aria-hidden="true"></i>
+        </label>
+
+        <div class="quick-commands" aria-label="คำสั่งแนะนำ">
+          <button type="button" data-prompt="อาหวัง สรุปสถานะระบบและโมเดลที่กำลังทำงานให้หน่อย">สรุปสถานะระบบ</button>
+          <button type="button" data-prompt="อาหวัง มีอุปกรณ์หรือ integration อะไรเชื่อมต่ออยู่บ้าง">ดูอุปกรณ์ที่เชื่อมต่อ</button>
+          <button type="button" data-prompt="อาหวัง ช่วยแนะนำสิ่งที่ตั้งค่าเพิ่มเพื่อให้เป็นผู้ช่วยส่วนตัวที่สมบูรณ์ขึ้น">แนะนำขั้นต่อไป</button>
+        </div>
+
+        <div class="integration-list" id="integrationGrid">
+          <button class="integration-row" type="button" data-open-settings="home">
+            <span class="integration-icon">HA</span>
+            <span><strong>Home Assistant</strong><small id="haStatus">ยังไม่ตั้งค่า</small></span>
+            <i id="haDot"></i>
+          </button>
+          <button class="integration-row" type="button" data-open-settings="mcp">
+            <span class="integration-icon">MCP</span>
+            <span><strong>Agent tools</strong><small id="mcpStatus">0 servers</small></span>
+            <i id="mcpDot"></i>
+          </button>
+          <button class="integration-row" type="button" data-open-settings="mobile">
+            <span class="integration-icon">MB</span>
+            <span><strong>Mobile access</strong><small id="mobileStatus">ตรวจเครือข่าย...</small></span>
+            <i id="mobileDot"></i>
+          </button>
+        </div>
+      </aside>
+
+      <section class="conversation-panel">
+        <header class="conversation-head">
+          <div>
+            <p class="kicker">ACTIVE CONVERSATION</p>
+            <h1>คุยกับอาหวัง</h1>
+          </div>
+          <div class="conversation-controls">
+            <label>
+              <span>LOCAL MODEL</span>
+              <select id="modelSelect" aria-label="เลือกโมเดล"><option>กำลังโหลด...</option></select>
+            </label>
+            <label class="compact-toggle">
+              <input id="autoSpeakToggle" type="checkbox" checked>
+              <span>AUTO SPEAK</span>
+            </label>
+            <button class="text-button" id="clearChat" type="button">CLEAR</button>
+          </div>
+        </header>
+
+        <section class="approval-zone" id="approvalSection" hidden aria-live="polite">
+          <header><span>HUMAN APPROVAL REQUIRED</span><b id="approvalCount">0</b></header>
+          <div id="approvalList"></div>
+        </section>
+
+        <div class="chat-messages" id="chatMessages" aria-live="polite">
+          <div class="chat-welcome">
+            <span class="welcome-mark">R</span>
+            <h2>สวัสดีครับ ผมคือ RWANG</h2>
+            <p>ผู้ช่วยส่วนตัวที่ทำงานผ่าน Ollama บนเครื่องของคุณ คุยภาษาไทย สั่งงานด้วยเสียง และต่อเครื่องมือผ่าน Home Assistant, Webhook หรือ MCP ได้</p>
+            <small>ข้อความและโมเดลอยู่ในระบบ local · การสั่งอุปกรณ์จริงต้องยืนยันก่อน</small>
+          </div>
+        </div>
+
+        <form class="composer" id="composerForm">
+          <textarea id="chatInput" rows="2" placeholder="พิมพ์คำสั่ง หรือกดไมค์แล้วพูดกับอาหวัง..." aria-label="ข้อความถึง RWANG"></textarea>
+          <div class="composer-bar">
+            <span id="voiceHint">ENTER ส่ง · SHIFT+ENTER ขึ้นบรรทัดใหม่</span>
+            <div>
+              <button class="mic-mini" id="composerMic" type="button" aria-label="พูดคำสั่ง">◉</button>
+              <button class="stop-button" id="stopButton" type="button" hidden>STOP</button>
+              <button class="send-button" id="sendButton" type="submit">SEND <span>↗</span></button>
+            </div>
+          </div>
+        </form>
+      </section>
+    </section>
+
+    <section class="view loadout-view" id="loadoutView" hidden>
+      <header class="loadout-profile" aria-labelledby="loadoutTitle">
+        <div class="loadout-avatar" aria-hidden="true">
+          <span>R</span>
+          <i></i>
+        </div>
+        <div class="loadout-profile-copy">
+          <p class="kicker">PERSONAL ASSISTANT LOADOUT / SLOT 01</p>
+          <div class="loadout-name-line">
+            <h1 id="loadoutTitle">RWANG <small>อาหวัง</small></h1>
+            <span class="loadout-online" id="loadoutIdentityState">LOCAL CORE ONLINE</span>
+          </div>
+          <p>กำหนดประสาทสัมผัส การควบคุมระยะไกล เครื่องมือ และกิจวัตรของผู้ช่วยประจำเครื่อง</p>
+        </div>
+        <div class="loadout-rank" aria-label="ระดับความพร้อมของ RWANG">
+          <div><span>READINESS</span><strong id="loadoutLevel">LV.07</strong></div>
+          <progress id="loadoutXpBar" max="100" value="72">72%</progress>
+          <small>7 / 10 MODULES EQUIPPED</small>
+        </div>
+      </header>
+
+      <div class="loadout-grid">
+        <aside class="loadout-inventory" aria-label="อุปกรณ์และสกิลของ RWANG">
+          <section class="loadout-panel equipment-panel">
+            <header class="loadout-panel-head">
+              <div><span class="panel-code">EQ</span><div><p class="kicker">EQUIPPED MODULES</p><h2>Active loadout</h2></div></div>
+              <span class="inventory-count"><b id="equippedCount">7</b>/10</span>
+            </header>
+
+            <div class="slot-group">
+              <div class="slot-group-label"><span>PERCEPTION</span><small>03 SLOTS</small></div>
+              <button class="equipment-slot equipped" id="gestureSlot" type="button" data-loadout-slot="gesture" data-open-settings="perception">
+                <span class="slot-index">P1</span>
+                <span class="slot-copy"><strong>Gesture Sense</strong><small>Hand & pose commands</small></span>
+                <span class="slot-state" id="gestureSlotStatus">READY</span>
+              </button>
+              <button class="equipment-slot equipped" id="faceSlot" type="button" data-loadout-slot="face" data-open-settings="perception">
+                <span class="slot-index">P2</span>
+                <span class="slot-copy"><strong>Face Profile</strong><small>Experimental match · NOT AUTH</small></span>
+                <span class="slot-state" id="faceSlotStatus">LOCKED</span>
+              </button>
+              <button class="equipment-slot equipped" id="voiceIdSlot" type="button" data-loadout-slot="voice" data-open-settings="perception">
+                <span class="slot-index">P3</span>
+                <span class="slot-copy"><strong>Voice Profile</strong><small>Experimental match · NOT AUTH</small></span>
+                <span class="slot-state" id="voiceIdSlotStatus">LEARN</span>
+              </button>
+            </div>
+
+            <div class="slot-group">
+              <div class="slot-group-label"><span>REMOTE</span><small>02 SLOTS</small></div>
+              <button class="equipment-slot equipped" id="screenShareSlot" type="button" data-loadout-slot="screen-share">
+                <span class="slot-index">R1</span>
+                <span class="slot-copy"><strong>Screen Relay</strong><small>App or display sharing</small></span>
+                <span class="slot-state" id="screenShareSlotStatus">IDLE</span>
+              </button>
+              <button class="equipment-slot equipped" id="mobileRemoteSlot" type="button" data-loadout-slot="mobile-remote" data-open-settings="mobile">
+                <span class="slot-index">R2</span>
+                <span class="slot-copy"><strong>Mobile Remote</strong><small>Paired control deck</small></span>
+                <span class="slot-state" id="mobileRemoteSlotStatus">SAFE</span>
+              </button>
+            </div>
+
+            <div class="slot-group">
+              <div class="slot-group-label"><span>CONNECTIONS</span><small>03 SLOTS</small></div>
+              <button class="equipment-slot" id="homeAssistantSlot" type="button" data-loadout-slot="home-assistant" data-open-settings="home">
+                <span class="slot-index">C1</span>
+                <span class="slot-copy"><strong>Home Assistant</strong><small>Smart home bridge</small></span>
+                <span class="slot-state" id="homeAssistantSlotStatus">CONFIG</span>
+              </button>
+              <button class="equipment-slot equipped" id="mcpAgentSlot" type="button" data-loadout-slot="mcp" data-open-settings="mcp">
+                <span class="slot-index">C2</span>
+                <span class="slot-copy"><strong>MCP Agents</strong><small>Trusted tool servers</small></span>
+                <span class="slot-state" id="mcpAgentSlotStatus">READY</span>
+              </button>
+              <button class="equipment-slot" id="webhookSlot" type="button" data-loadout-slot="webhooks" data-open-settings="webhooks">
+                <span class="slot-index">C3</span>
+                <span class="slot-copy"><strong>IoT Webhooks</strong><small>Approved HTTP actions</small></span>
+                <span class="slot-state" id="webhookSlotStatus">EMPTY</span>
+              </button>
+            </div>
+          </section>
+
+          <section class="loadout-panel skills-panel" aria-labelledby="skillsTitle">
+            <header class="loadout-panel-head compact">
+              <div><span class="panel-code">SK</span><div><p class="kicker">SKILL INVENTORY</p><h2 id="skillsTitle">Capabilities</h2></div></div>
+              <span class="inventory-count"><b id="skillCount">6</b>/10</span>
+            </header>
+            <div class="skill-inventory" id="skillInventory">
+              <article class="skill-item equipped" data-skill-id="voice-command">
+                <span class="skill-rune" aria-hidden="true">VC</span>
+                <div><strong>Voice Command</strong><small>CORE · EQUIPPED</small></div>
+                <button type="button" data-skill-action="configure" aria-label="ตั้งค่า Voice Command">CFG</button>
+              </article>
+              <article class="skill-item equipped" data-skill-id="thai-dialogue">
+                <span class="skill-rune" aria-hidden="true">TH</span>
+                <div><strong>Thai Dialogue</strong><small>LANGUAGE · EQUIPPED</small></div>
+                <button type="button" data-skill-action="configure" aria-label="ตั้งค่า Thai Dialogue">CFG</button>
+              </article>
+              <article class="skill-item equipped" data-skill-id="system-ops">
+                <span class="skill-rune" aria-hidden="true">OP</span>
+                <div><strong>System Ops</strong><small>LOCAL · EQUIPPED</small></div>
+                <button type="button" data-skill-action="toggle" aria-label="ถอด System Ops">ON</button>
+              </article>
+              <article class="skill-item" data-skill-id="scene-automation">
+                <span class="skill-rune" aria-hidden="true">SA</span>
+                <div><strong>Scene Automation</strong><small>HOME · AVAILABLE</small></div>
+                <button type="button" data-skill-action="toggle" aria-label="ติดตั้ง Scene Automation">ADD</button>
+              </article>
+              <article class="skill-item equipped" data-skill-id="mcp-toolbelt">
+                <span class="skill-rune" aria-hidden="true">MC</span>
+                <div><strong>MCP Toolbelt</strong><small>AGENT · EQUIPPED</small></div>
+                <button type="button" data-skill-action="configure" aria-label="ตั้งค่า MCP Toolbelt">CFG</button>
+              </article>
+              <article class="skill-item locked" data-skill-id="desktop-observer">
+                <span class="skill-rune" aria-hidden="true">DO</span>
+                <div><strong>Desktop Observer</strong><small>VISION · NEEDS CONSENT</small></div>
+                <button type="button" data-skill-action="unlock" aria-label="ขอสิทธิ์ Desktop Observer">LOCK</button>
+              </article>
+            </div>
+            <button class="inventory-expand" id="manageSkillsButton" type="button" data-loadout-action="manage-skills">MANAGE CONNECTORS & SKILLS <span>↗</span></button>
+          </section>
+        </aside>
+
+        <section class="loadout-workbench" aria-label="แผงตั้งค่าความสามารถ">
+          <section class="loadout-panel perception-panel" aria-labelledby="perceptionTitle">
+            <header class="loadout-panel-head">
+              <div><span class="panel-code">PX</span><div><p class="kicker">PERCEPTION LAB</p><h2 id="perceptionTitle">Camera & identity</h2></div></div>
+              <output class="module-state" id="perceptionStatus" aria-live="polite">CAMERA OFFLINE</output>
+            </header>
+            <div class="perception-layout">
+              <div class="camera-stage" id="perceptionStage">
+                <video id="perceptionVideo" autoplay muted playsinline aria-label="ภาพกล้องสำหรับตรวจจับท่าทางและใบหน้า"></video>
+                <canvas id="perceptionCanvas" aria-hidden="true"></canvas>
+                <div class="camera-reticle" aria-hidden="true"><span></span></div>
+                <div class="camera-empty" id="perceptionPlaceholder">
+                  <span>PX</span>
+                  <strong>LOCAL CAMERA STANDBY</strong>
+                  <small>ภาพจะไม่ถูกส่งออกนอกเครื่องโดยอัตโนมัติ</small>
+                </div>
+                <div class="camera-hud" aria-hidden="true"><span id="perceptionFps">00 FPS</span><span id="perceptionConfidence">CONF —</span></div>
+              </div>
+              <div class="perception-console">
+                <label class="loadout-field" for="perceptionDeviceSelect">CAMERA SOURCE
+                  <select id="perceptionDeviceSelect"><option value="">Default camera</option></select>
+                </label>
+                <fieldset class="sensor-modes">
+                  <legend>ACTIVE SENSORS</legend>
+                  <label><input type="checkbox" data-perception-mode="gesture" checked><span>GESTURE</span><small>Hand / pose</small></label>
+                  <label><input type="checkbox" data-perception-mode="face" checked><span>FACE PROFILE</span><small>Experimental · NOT AUTH</small></label>
+                  <label><input type="checkbox" data-perception-mode="voice" checked><span>VOICE PROFILE</span><small>Experimental · NOT AUTH</small></label>
+                </fieldset>
+                <div class="action-row primary-actions">
+                  <button class="primary-button" id="startPerceptionButton" type="button">START SENSORS</button>
+                  <button class="secondary-button danger-outline" id="stopPerceptionButton" type="button" disabled>STOP</button>
+                </div>
+                <div class="enroll-actions" aria-label="การเรียนรู้ตัวตนและท่าทาง">
+                  <button id="calibrateGestureButton" type="button"><span>01</span><strong>Gesture mapping</strong><small>ดูท่าควบคุมที่รองรับ</small></button>
+                  <button id="enrollFaceButton" type="button"><span>02</span><strong>Enroll face profile</strong><small>ทดลองเทียบใบหน้า · NOT AUTH</small></button>
+                  <button id="enrollVoiceButton" type="button"><span>03</span><strong>Enroll voice profile</strong><small>ทดลองเทียบเสียง · NOT AUTH</small></button>
+                </div>
+                <p class="privacy-strip"><b>LOCAL PRIVACY GATE</b> กล้องและไมค์เริ่มได้ต่อเมื่อกดอนุญาต และหยุดได้จากปุ่ม STOP ทุกเมื่อ</p>
+              </div>
+            </div>
+          </section>
+
+          <div class="loadout-workbench-grid">
+            <section class="loadout-panel share-panel" aria-labelledby="shareTitle">
+              <header class="loadout-panel-head compact">
+                <div><span class="panel-code">SR</span><div><p class="kicker">SCREEN RELAY</p><h2 id="shareTitle">Share to mobile</h2></div></div>
+                <span class="viewer-badge"><b id="shareViewerCount">0</b> VIEWERS</span>
+              </header>
+              <div class="share-preview-wrap">
+                <video id="sharePreview" autoplay muted playsinline aria-label="ตัวอย่างหน้าจอที่กำลังแชร์"></video>
+                <div class="share-empty" id="sharePlaceholder"><span>▣</span><strong>NO ACTIVE STREAM</strong><small id="shareStatus">เลือกแอปหรือหน้าจอเพื่อเริ่มแชร์</small></div>
+              </div>
+              <div class="share-controls">
+                <label class="loadout-field" for="shareSourceSelect">SHARE TARGET
+                  <select id="shareSourceSelect">
+                    <option value="browser">Ask every time · tab/window/screen</option>
+                    <option value="application">Application or window</option>
+                    <option value="screen">Entire screen</option>
+                  </select>
+                </label>
+                <div class="action-row">
+                  <button class="primary-button" id="startShareButton" type="button">START SHARE</button>
+                  <button class="secondary-button danger-outline" id="stopShareButton" type="button" disabled>STOP</button>
+                </div>
+                <div class="share-join">
+                  <label for="shareSessionInput">SESSION / VIEW LINK</label>
+                  <div><input id="shareSessionInput" autocomplete="off" placeholder="รหัส session หรือ URL จากเครื่องหลัก"><button id="joinShareButton" type="button">JOIN</button></div>
+                </div>
+                <button class="inventory-expand" id="copyShareLinkButton" type="button" disabled>COPY PRIVATE VIEW LINK <span>⧉</span></button>
+              </div>
+              <p class="panel-footnote">เบราว์เซอร์จะแสดงหน้าต่างเลือกว่าแชร์ “รายแอป” หรือ “ทั้งหน้าจอ” ทุกครั้ง ไม่มีการเริ่มแชร์แบบเงียบ</p>
+            </section>
+
+            <section class="loadout-panel remote-panel" aria-labelledby="remoteTitle">
+              <header class="loadout-panel-head compact">
+                <div><span class="panel-code">RM</span><div><p class="kicker">MOBILE REMOTE</p><h2 id="remoteTitle">Safe control deck</h2></div></div>
+                <output class="module-state" id="remoteStatus" aria-live="polite">NOT PAIRED</output>
+              </header>
+              <div class="remote-pairing">
+                <div><span>PAIR CODE</span><strong id="remotePairCode">— — — — — —</strong></div>
+                <label class="loadout-field" for="remoteViewerSelect">CONTROL DEVICE
+                  <select id="remoteViewerSelect"><option value="">รออุปกรณ์ JOIN</option></select>
+                </label>
+                <div class="action-row">
+                  <button class="primary-button" id="remoteEnableButton" type="button">ENABLE 10 MIN</button>
+                  <button class="secondary-button danger-outline" id="remoteDisconnectButton" type="button" disabled>DISCONNECT</button>
+                </div>
+              </div>
+              <div class="remote-deck" aria-label="ปุ่มควบคุมระยะไกล">
+                <button class="remote-key direction-up" type="button" data-remote-command="scroll-up" aria-label="เลื่อนขึ้น">↑</button>
+                <button class="remote-key direction-left" type="button" data-remote-command="assistant" aria-label="ไปหน้า Assistant">ASST</button>
+                <button class="remote-key remote-confirm" type="button" data-remote-command="loadout">LOAD</button>
+                <button class="remote-key direction-right" type="button" data-remote-command="systems" aria-label="ไปหน้า Systems">SYS</button>
+                <button class="remote-key direction-down" type="button" data-remote-command="scroll-down" aria-label="เลื่อนลง">↓</button>
+                <button class="remote-key" type="button" data-remote-command="top">TOP</button>
+                <button class="remote-key" type="button" data-remote-command="bottom">END</button>
+                <button class="remote-key" type="button" data-remote-command="skills">SKILLS</button>
+                <button class="remote-key" type="button" data-remote-command="schedule">SCHED</button>
+                <button class="remote-key" type="button" data-remote-command="integrations">LINKS</button>
+              </div>
+              <p class="panel-footnote warning">เฉพาะคำสั่งใน allowlist · ไม่มีปุ่มรันคำสั่ง shell, ลบไฟล์ หรืออนุมัติ action แทนเจ้าของเครื่อง</p>
+            </section>
+          </div>
+
+          <section class="loadout-panel schedules-panel" aria-labelledby="schedulesTitle">
+            <header class="loadout-panel-head">
+              <div><span class="panel-code">SC</span><div><p class="kicker">SCHEDULE ENGINE</p><h2 id="schedulesTitle">Routines & timed commands</h2></div></div>
+              <span class="inventory-count"><b id="scheduleCount">2</b> ACTIVE</span>
+            </header>
+            <div class="schedule-layout">
+              <form class="schedule-form" id="scheduleForm">
+                <label class="loadout-field">ROUTINE NAME<input id="scheduleNameInput" required maxlength="80" placeholder="Morning status"></label>
+                <label class="loadout-field">FIRST RUN<input id="scheduleWhenInput" type="datetime-local" required></label>
+                <label class="loadout-field">REPEAT<select id="scheduleRepeatInput"><option value="once">Once</option><option value="hourly">Hourly</option><option value="daily">Daily</option><option value="weekdays">Weekdays</option><option value="weekly">Weekly</option></select></label>
+                <label class="loadout-field schedule-command">COMMAND<textarea id="scheduleCommandInput" required rows="2" maxlength="500" placeholder="สรุปสถานะระบบและแจ้งเตือนสิ่งสำคัญ"></textarea></label>
+                <label class="schedule-approval"><input id="scheduleApprovalInput" type="checkbox" checked><span>แสดงป้ายเตือนว่า external tools ของ routine นี้ยังผ่าน approval gate</span></label>
+                <button class="primary-button" type="submit">ADD ROUTINE</button>
+              </form>
+              <div class="schedule-list" id="scheduleList" aria-live="polite">
+                <article class="schedule-item active" data-schedule-id="morning-status">
+                  <span class="schedule-time"><b>07:30</b><small>DAILY</small></span>
+                  <div><strong>Morning status</strong><p>สรุปอากาศ ระบบ และสิ่งที่ต้องทำ</p><small>NEXT · TOMORROW 07:30</small></div>
+                  <div class="schedule-actions"><button type="button" data-schedule-action="toggle" aria-label="พัก Morning status">PAUSE</button><button type="button" data-schedule-action="edit" aria-label="แก้ไข Morning status">EDIT</button><button type="button" data-schedule-action="remove" aria-label="ลบ Morning status">×</button></div>
+                </article>
+                <article class="schedule-item active" data-schedule-id="security-check">
+                  <span class="schedule-time"><b>22:00</b><small>DAILY</small></span>
+                  <div><strong>Night security check</strong><p>อ่านสถานะประตูและอุปกรณ์โดยไม่สั่งเปลี่ยน state</p><small>NEXT · TODAY 22:00</small></div>
+                  <div class="schedule-actions"><button type="button" data-schedule-action="toggle" aria-label="พัก Night security check">PAUSE</button><button type="button" data-schedule-action="edit" aria-label="แก้ไข Night security check">EDIT</button><button type="button" data-schedule-action="remove" aria-label="ลบ Night security check">×</button></div>
+                </article>
+              </div>
+            </div>
+          </section>
+        </section>
+      </div>
+    </section>
+
+    <section class="view systems-view" id="systemsView" hidden>
+      <header class="section-header">
+        <div><p class="kicker">OLLAMA OPERATIONS</p><h1>Local Systems</h1></div>
+        <p>ดาวน์โหลดโมเดลต่อจาก partial, จัดคิว retry และควบคุม memory จากหน้าเดียว</p>
+      </header>
+
+      <section class="metrics" aria-label="สถานะระบบ">
+        <div><span>OLLAMA</span><strong id="metricOllama">—</strong><small id="metricVersion">VERSION —</small></div>
+        <div><span>INSTALLED</span><strong id="metricInstalled">0</strong><small>LOCAL MODELS</small></div>
+        <div><span>IN MEMORY</span><strong id="metricRunning">0</strong><small>ACTIVE MODELS</small></div>
+        <div><span>FREE DISK</span><strong id="metricDisk">—</strong><small>MODEL STORAGE</small></div>
+      </section>
+
+      <form class="command-console" id="commandForm">
+        <label for="commandInput"><span>&gt;_</span><strong>OLLAMA COMMAND</strong></label>
+        <div>
+          <span class="terminal-prefix">C:\&gt;</span>
+          <input id="commandInput" autocomplete="off" spellcheck="false" placeholder="ollama run hf.co/mradermacher/Intelligence-Cod-Rag-7B-V2-i1-GGUF:Q4_K_M">
+          <button id="executeButton" type="submit">EXECUTE</button>
+        </div>
+        <output id="commandOutput">รองรับ run · pull · stop · list · ps</output>
+      </form>
+
+      <div class="systems-grid">
+        <section class="system-panel">
+          <header>
+            <div><i class="live-dot"></i><strong>DOWNLOAD QUEUE</strong></div>
+            <div class="panel-actions">
+              <button class="small-button" data-action="resume-all" type="button">ต่อทั้งหมด</button>
+              <button class="small-button danger" data-action="pause-all" type="button">หยุดคิว</button>
+            </div>
+          </header>
+          <div id="modelList" class="model-list"><div class="skeleton"></div></div>
+        </section>
+        <section class="system-panel activity-panel">
+          <header><div><span class="activity-symbol">⌁</span><strong>ACTIVITY</strong></div><button class="text-button" id="refreshButton" type="button">REFRESH</button></header>
+          <div id="activityLog" class="activity-log"></div>
+        </section>
+      </div>
+
+      <section class="system-panel installed-panel">
+        <header><div><span class="activity-symbol">▦</span><strong>INSTALLED MODELS</strong></div><span id="installedCount">0 LOCAL</span></header>
+        <div id="installedGrid" class="installed-grid"></div>
+      </section>
+    </section>
+  </main>
+
+  <footer>
+    <span>RWANG / LOCAL-FIRST PERSONAL INTELLIGENCE</span>
+    <span id="footerStatus">PRIVATE BY DEFAULT · HUMAN APPROVAL ENABLED</span>
+  </footer>
+
+  <dialog id="settingsDialog">
+    <form method="dialog" class="dialog-head">
+      <div><p class="kicker">RWANG CONFIGURATION</p><h2>Connections & access</h2></div>
+      <button type="submit" aria-label="ปิด">×</button>
+    </form>
+    <div class="settings-layout">
+      <nav class="settings-nav" aria-label="หมวดการตั้งค่า">
+        <button class="active" type="button" data-settings-tab="assistant">Assistant</button>
+        <button type="button" data-settings-tab="perception">Perception</button>
+        <button type="button" data-settings-tab="home">Home Assistant</button>
+        <button type="button" data-settings-tab="mcp">MCP Agents</button>
+        <button type="button" data-settings-tab="webhooks">IoT Webhooks</button>
+        <button type="button" data-settings-tab="mobile">Mobile</button>
+        <button type="button" data-settings-tab="schedules">Schedules</button>
+      </nav>
+
+      <div class="settings-content">
+        <section class="settings-tab active" data-tab-panel="assistant">
+          <div class="settings-title"><span>01</span><div><h3>ตัวตนและเสียง</h3><p>กำหนดคำปลุก ภาษา และโมเดลหลักของ RWANG</p></div></div>
+          <form id="assistantSettings" class="settings-form">
+            <label>คำปลุก<input id="wakeWordInput" value="อาหวัง" maxlength="40"></label>
+            <label>ภาษา<select id="languageInput"><option value="th-TH">ไทย · th-TH</option><option value="en-US">English · en-US</option></select></label>
+            <label class="wide">โมเดลหลัก<select id="defaultModelInput"></select></label>
+            <label class="check-field wide"><input id="settingsAutoSpeak" type="checkbox" checked><span>อ่านคำตอบออกเสียงอัตโนมัติ</span></label>
+            <button class="primary-button" type="submit">บันทึก Assistant</button>
+          </form>
+          <div class="security-note warning"><strong>Speech privacy</strong><p>RWANG จะเลือก on-device recognition เมื่อ browser และ language pack รองรับ มิฉะนั้น browser อาจส่งเสียงไปยังบริการของผู้ผลิต ระบบจะแจ้งโหมดที่ใช้ก่อนเริ่มฟัง</p></div>
+        </section>
+
+        <section class="settings-tab" data-tab-panel="perception">
+          <div class="settings-title"><span>02</span><div><h3>Perception & identity</h3><p>เลือก sensor ที่ RWANG ใช้จดจำท่าทาง ใบหน้า และเสียงแบบ local-first</p></div></div>
+          <form id="perceptionSettings" class="settings-form">
+            <label class="check-field wide"><input id="gestureEnabledInput" type="checkbox" checked><span>เปิดการสั่งงานด้วยท่าทางเมื่อกล้องทำงาน</span></label>
+            <label class="check-field wide"><input id="faceEnabledInput" type="checkbox"><span>ใช้ Face Profile แสดงตัวตนที่รู้จักในเครื่อง (ไม่ใช้แทน access token)</span></label>
+            <label class="check-field wide"><input id="voiceIdEnabledInput" type="checkbox"><span>ใช้ Voice Profile แสดงผู้พูดที่รู้จักในเครื่อง (ไม่ใช้แทน approval)</span></label>
+            <label>Match threshold<input id="perceptionThresholdInput" type="number" min="0.5" max="0.99" step="0.01" value="0.82"></label>
+            <label class="check-field"><input id="presenceRequiredInput" type="checkbox" checked><span>ต้องพบเจ้าของในภาพ</span></label>
+            <button class="primary-button" type="submit">บันทึก Perception</button>
+            <button class="secondary-button" id="clearBiometricsButton" type="button">ล้าง Face / Voice Profile ในอุปกรณ์นี้</button>
+          </form>
+          <div class="security-note warning"><strong>Experimental convenience only</strong><p>การเปิดกล้องหรือไมค์ต้องเกิดจากการกดของผู้ใช้ โปรไฟล์ทดลองถูกเก็บในอุปกรณ์นี้และใช้แสดงสถานะเท่านั้น ไม่ใช่หลักฐานยืนยันตัวตนและไม่ข้าม token หรือ approval</p></div>
+        </section>
+
+        <section class="settings-tab" data-tab-panel="home">
+          <div class="settings-title"><span>03</span><div><h3>Home Assistant</h3><p>RWANG เรียก REST API ผ่าน backend เพื่อไม่เปิดเผย token ใน browser</p></div></div>
+          <form id="homeAssistantForm" class="settings-form">
+            <label class="wide">Base URL<input id="haUrlInput" type="url" placeholder="http://homeassistant.local:8123"></label>
+            <label class="wide">Long-lived access token<input id="haTokenInput" type="password" autocomplete="new-password" placeholder="เว้นว่างเพื่อใช้ token เดิม"></label>
+            <label class="check-field wide"><input id="haEnabledInput" type="checkbox" checked><span>เปิดใช้ Home Assistant tools</span></label>
+            <button class="primary-button" type="submit">บันทึกและทดสอบ</button>
+          </form>
+          <div class="security-note"><strong>Action gate</strong><p>อ่าน state ได้ทันที แต่ turn_on, lock, alarm, cover และ service อื่นจะเข้าคิวอนุมัติก่อนเสมอ</p></div>
+        </section>
+
+        <section class="settings-tab" data-tab-panel="mcp">
+          <div class="settings-title"><span>04</span><div><h3>MCP Agent connections</h3><p>รองรับ Streamable HTTP, SSE และ local stdio พร้อมตรวจ tool drift</p></div></div>
+          <div id="mcpServerList" class="connection-cards"></div>
+          <form id="mcpForm" class="settings-form bordered-form">
+            <input id="mcpIdInput" type="hidden">
+            <label>ชื่อ server<input id="mcpNameInput" required placeholder="Local tools"></label>
+            <label>Transport<select id="mcpTransportInput"><option value="http">HTTP</option><option value="sse">SSE</option><option value="stdio">STDIO</option></select></label>
+            <label class="wide" id="mcpTargetLabel">MCP URL<input id="mcpTargetInput" required placeholder="http://127.0.0.1:3000/mcp"></label>
+            <label class="wide" id="mcpArgsLabel" hidden>Args (JSON array)<textarea id="mcpArgsInput" rows="2" placeholder='["server.mjs"]'></textarea></label>
+            <label class="wide">Headers (JSON, optional)<textarea id="mcpHeadersInput" rows="2" placeholder='{"Authorization":"Bearer ..."}'></textarea></label>
+            <button class="primary-button" type="submit">SAVE + INSPECT TOOLS</button>
+          </form>
+        </section>
+
+        <section class="settings-tab" data-tab-panel="webhooks">
+          <div class="settings-title"><span>05</span><div><h3>IoT Webhooks</h3><p>เชื่อมระบบอื่นด้วย HTTP endpoint ที่กำหนดไว้ล่วงหน้า</p></div></div>
+          <div id="webhookList" class="connection-cards"></div>
+          <form id="webhookForm" class="settings-form bordered-form">
+            <input id="webhookIdInput" type="hidden">
+            <label>ชื่อ webhook<input id="webhookNameInput" required placeholder="Garage controller"></label>
+            <label>Method<select id="webhookMethodInput"><option>POST</option><option>PUT</option><option>PATCH</option></select></label>
+            <label class="wide">URL<input id="webhookUrlInput" type="url" required placeholder="http://192.168.1.50/api/action"></label>
+            <label class="wide">Headers (JSON, optional)<textarea id="webhookHeadersInput" rows="2" placeholder='{"X-Token":"..."}'></textarea></label>
+            <button class="primary-button" type="submit">บันทึก Webhook</button>
+          </form>
+        </section>
+
+        <section class="settings-tab" data-tab-panel="mobile">
+          <div class="settings-title"><span>06</span><div><h3>Mobile access</h3><p>จับคู่ด้วยรหัสใช้ครั้งเดียวและออก credential แยกรายอุปกรณ์</p></div></div>
+          <div class="mobile-access">
+            <label>Mobile URL<textarea id="mobileUrlOutput" rows="3" readonly></textarea></label>
+            <label>Security status<input id="mobileSecurityOutput" value="LOOPBACK ONLY · SAFE DEFAULT" readonly></label>
+            <label>One-time pairing code<input id="pairingCodeOutput" inputmode="numeric" readonly placeholder="กด CREATE PAIR CODE"></label>
+            <div><button class="primary-button" id="copyMobileUrl" type="button">COPY URL</button><button class="primary-button" id="createPairCode" type="button">CREATE PAIR CODE</button><button class="secondary-button" id="cancelPairCode" type="button">CANCEL CODE</button><button class="secondary-button" id="rotateToken" type="button">REVOKE ALL + ROTATE</button></div>
+          </div>
+          <div class="connection-cards" id="pairedDeviceList"></div>
+          <div class="security-note warning"><strong>LAN security</strong><p>Master token ไม่ถูกส่งให้มือถือ อุปกรณ์ที่จับคู่จะได้ HttpOnly cookie อายุ 30 วันและไม่มีสิทธิ์ approve, model action หรือแก้ integration การจับคู่จากเครื่องอื่นเปิดได้เฉพาะ trusted HTTPS</p></div>
+        </section>
+
+        <section class="settings-tab" data-tab-panel="schedules">
+          <div class="settings-title"><span>07</span><div><h3>Schedules & safety</h3><p>กำหนดกติกากลางสำหรับ routine และงานที่ทำตามเวลา</p></div></div>
+          <form id="scheduleSettings" class="settings-form">
+            <label class="check-field wide"><input id="schedulerEnabledInput" type="checkbox" checked><span>เปิด schedule engine ขณะที่ RWANG server ทำงาน</span></label>
+            <label>Time zone<select id="scheduleTimeZoneInput"><option value="Asia/Bangkok">Asia/Bangkok · UTC+07</option><option value="UTC">UTC</option></select></label>
+            <label>Missed run<select id="missedScheduleInput"><option value="skip">Skip missed run</option><option value="next">Run at next start</option></select></label>
+            <label class="check-field wide"><input id="scheduleGlobalApprovalInput" type="checkbox" checked><span>แสดง Schedule เป็น manual launch; external tools ยังใช้ human approval ตาม policy เดิม</span></label>
+            <button class="primary-button" type="submit">บันทึก Schedules</button>
+          </form>
+          <div class="security-note"><strong>Action gate</strong><p>Schedule ปลุกให้ RWANG ทำงานตามเวลาได้ แต่ไม่สามารถข้าม approval policy ของ Home Assistant, MCP หรือ Webhook</p></div>
+        </section>
+      </div>
+    </div>
+  </dialog>
+
+  <div class="access-gate" id="accessGate" hidden>
+    <form id="accessForm">
+      <span class="welcome-mark">R</span>
+      <p class="kicker">REMOTE ACCESS</p>
+      <h2>เชื่อมต่อ RWANG</h2>
+      <p>ใส่รหัสจับคู่ 8 หลักจากหน้า Mobile บนเครื่องหลัก</p>
+      <input id="accessTokenInput" type="password" inputmode="numeric" autocomplete="one-time-code" placeholder="00000000 หรือ recovery token">
+      <button class="primary-button" type="submit">CONNECT</button>
+      <small id="accessError"></small>
+    </form>
+  </div>
+
+  <div class="toast" id="toast" role="status"></div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

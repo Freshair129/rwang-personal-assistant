@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="RWANG">
+  <rect width="512" height="512" fill="#050c0f"/>
+  <circle cx="256" cy="256" r="205" fill="none" stroke="#1d3941" stroke-width="8"/>
+  <circle cx="256" cy="256" r="160" fill="none" stroke="#2e6875" stroke-width="6" stroke-dasharray="22 15"/>
+  <circle cx="256" cy="256" r="112" fill="#07171d" stroke="#64e7ff" stroke-width="8"/>
+  <path d="M208 341V169h66c52 0 82 28 82 72 0 30-15 52-43 63l52 37h-58l-43-32h-10v32h-46zm46-75h20c23 0 35-9 35-26 0-18-12-27-35-27h-20v53z" fill="#64e7ff"/>
+  <circle cx="256" cy="394" r="8" fill="#9cf4cb"/>
+  <path d="M244 49h24v18h-24zM244 445h24v18h-24z" fill="#64e7ff"/>
+</svg>

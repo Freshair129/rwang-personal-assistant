@@ -1,0 +1,21 @@
+{
+  "name": "RWANG · Local Personal Assistant",
+  "short_name": "RWANG",
+  "description": "ผู้ช่วยส่วนตัวแบบ local ผ่าน Ollama พร้อมเสียง Smart Home และ MCP",
+  "lang": "th",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#050c0f",
+  "theme_color": "#071317",
+  "categories": ["productivity", "utilities"],
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

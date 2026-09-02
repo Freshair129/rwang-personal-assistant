@@ -1,0 +1,23 @@
+{
+  "name": "rwang-local-assistant",
+  "version": "0.2.0",
+  "description": "RWANG (อาหวัง) local-first assistant with Ollama, perception, mobile WebRTC, schedules, Home Assistant, IoT and MCP",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.19.0",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server.mjs",
+    "check": "node --check server.mjs && node --check rwang.mjs && node --check remote.mjs && node --check public/app.js && node --check public/perception.js && node --check public/remote-client.js",
+    "test:security": "node tests/security-smoke.mjs && node tests/remote-security.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@ai-sdk/mcp": "^2.0.41",
+    "@ai-sdk/openai-compatible": "^3.0.41",
+    "@mediapipe/tasks-vision": "1.0.1",
+    "ai": "^7.0.85",
+    "zod": "^4.5.4"
+  }
+}

@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Local runtime state
+.queue-state.json
+.queue-state.tmp
+.queue-state.corrupt-*.json
+*.log
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+.rwang-config.json
+.rwang-config.tmp
+.rwang-tool-fingerprints.json
+.rwang-tool-fingerprints.tmp
+certs/
+*.key
+*.pem
+*.pfx
+*.p12
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Temporary files
+*.tmp
+*.bak
