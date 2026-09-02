@@ -9,6 +9,8 @@ const STORAGE_AUTO_SPEAK = "rwang.auto-speak";
 const STORAGE_PERCEPTION_THRESHOLD = "rwang.perception-threshold";
 const STORAGE_PRESENCE_REQUIRED = "rwang.presence-required";
 const CORE_CLASSES = ["listening", "thinking", "speaking", "error"];
+const SPOTLIGHT_SEARCH_DELAY = 160;
+const UNSAFE_DISPLAY_CONTROLS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g;
 
 const state = {
   accessToken: "",
@@ -36,6 +38,13 @@ const state = {
   faceVerifyBusy: false,
   documentAuditResult: null,
   documentAuditBusy: false,
+  spotlightController: null,
+  spotlightSearchTimer: null,
+  spotlightStatusTimer: null,
+  spotlightResults: [],
+  spotlightSelection: -1,
+  spotlightOpening: false,
+  spotlightReindexing: false,
 };
 
 class ApiError extends Error {
@@ -156,6 +165,10 @@ function formatDateTime(value) {
   return date.toLocaleString("th-TH", { dateStyle: "short", timeStyle: "short" });
 }
 
+function safeDisplayText(value) {
+  return String(value || "").replace(UNSAFE_DISPLAY_CONTROLS, "").trim();
+}
+
 function shortName(model = "") {
   const tail = String(model).split("/").at(-1) || String(model);
   return tail.length > 66 ? `${tail.slice(0, 63)}…` : tail;
@@ -173,6 +186,317 @@ function createButton(text, className = "", data = {}) {
   button.type = "button";
   for (const [key, value] of Object.entries(data)) button.dataset[key] = value;
   return button;
+}
+
+function spotlightIsLocal() {
+  return state.rwang?.access?.local === true;
+}
+
+function setSpotlightLoading(active) {
+  const loading = Boolean(active);
+  $("#spotlightSpinner").hidden = !loading;
+  $("#spotlightInput").setAttribute("aria-busy", String(loading));
+  $("#spotlightResults").setAttribute("aria-busy", String(loading));
+}
+
+function renderSpotlightEmpty(title, copy, tone = "") {
+  const results = $("#spotlightResults");
+  results.replaceChildren();
+  const empty = createElement("div", `spotlight-empty${tone ? ` ${tone}` : ""}`);
+  empty.append(
+    createElement("span", "", tone === "error" ? "!" : "⌕"),
+    createElement("strong", "", title),
+    createElement("p", "", copy),
+  );
+  results.append(empty);
+}
+
+function spotlightFileBadge(result) {
+  const extension = safeDisplayText(result.extension).replace(/^\./, "").toUpperCase();
+  const kind = safeDisplayText(result.kind).toLowerCase();
+  if (kind.includes("folder") || kind.includes("directory")) return "DIR";
+  if (kind.includes("image")) return "IMG";
+  if (kind.includes("video")) return "VID";
+  if (kind.includes("audio")) return "AUD";
+  if (kind.includes("archive")) return "ZIP";
+  if (kind.includes("code")) return "CODE";
+  if (kind.includes("spreadsheet")) return "XLS";
+  if (kind.includes("presentation")) return "PPT";
+  if (kind.includes("document")) return extension === "PDF" ? "PDF" : "DOC";
+  return extension.slice(0, 4) || "FILE";
+}
+
+function spotlightMeta(result) {
+  const extension = safeDisplayText(result.extension).replace(/^\./, "").toUpperCase();
+  const kind = safeDisplayText(result.kind).toUpperCase();
+  const label = extension || kind || "FILE";
+  return Number.isFinite(Number(result.size)) ? `${label} · ${formatBytes(result.size)}` : label;
+}
+
+function setSpotlightSelection(index, { scroll = false } = {}) {
+  const buttons = $$(".spotlight-result", $("#spotlightResults"));
+  if (!buttons.length) {
+    state.spotlightSelection = -1;
+    $("#spotlightInput").removeAttribute("aria-activedescendant");
+    return;
+  }
+  state.spotlightSelection = Math.max(0, Math.min(Number(index) || 0, buttons.length - 1));
+  buttons.forEach((button, buttonIndex) => {
+    const selected = buttonIndex === state.spotlightSelection;
+    button.classList.toggle("selected", selected);
+    button.setAttribute("aria-selected", String(selected));
+    if (selected) {
+      $("#spotlightInput").setAttribute("aria-activedescendant", button.id);
+      if (scroll) button.scrollIntoView({ block: "nearest" });
+    }
+  });
+}
+
+function renderSpotlightResults(results = []) {
+  const container = $("#spotlightResults");
+  container.replaceChildren();
+  if (!results.length) {
+    renderSpotlightEmpty("ไม่พบไฟล์ที่ตรงกัน", "ลองใช้ชื่อบางส่วน นามสกุลไฟล์ หรือชื่อโฟลเดอร์อื่น");
+    return;
+  }
+
+  results.forEach((result, index) => {
+    const row = createElement("button", "spotlight-result");
+    row.type = "button";
+    row.id = `spotlightResult-${index}`;
+    row.dataset.spotlightIndex = String(index);
+    row.setAttribute("role", "option");
+    row.setAttribute("aria-selected", "false");
+    if (result.openable === false) {
+      row.disabled = true;
+      row.classList.add("blocked");
+      row.setAttribute("aria-label", `${safeDisplayText(result.name) || "ไฟล์"} ไม่อนุญาตให้เปิดจาก RWANG`);
+    }
+
+    const icon = createElement("span", "spotlight-result-icon", spotlightFileBadge(result));
+    icon.setAttribute("aria-hidden", "true");
+    const copy = createElement("span", "spotlight-result-copy");
+    copy.append(createElement("strong", "", safeDisplayText(result.name) || "Unnamed file"));
+    const path = createElement("small", "", safeDisplayText(result.path || result.directory));
+    path.dir = "ltr";
+    copy.append(path);
+
+    const meta = createElement("span", "spotlight-result-meta");
+    meta.append(createElement("span", "", spotlightMeta(result)));
+    const modified = createElement("time", "", formatDateTime(result.modifiedAt));
+    const modifiedDate = new Date(result.modifiedAt);
+    if (!Number.isNaN(modifiedDate.getTime())) modified.dateTime = modifiedDate.toISOString();
+    meta.append(modified);
+
+    const action = createElement("span", "spotlight-result-action", result.openable === false ? "BLOCKED" : "OPEN ↗");
+    row.append(icon, copy, meta, action);
+    container.append(row);
+  });
+  setSpotlightSelection(0);
+}
+
+function normalizedSpotlightStatus(payload) {
+  if (payload?.status && typeof payload.status === "object") return payload.status;
+  return payload && typeof payload === "object" ? payload : {};
+}
+
+function renderSpotlightIndexStatus(payload) {
+  const status = normalizedSpotlightStatus(payload);
+  const rawPhase = safeDisplayText(status.state || status.phase || (status.indexing ? "indexing" : "ready"));
+  const phase = rawPhase.toLowerCase();
+  const count = Number(status.indexedFiles ?? status.fileCount ?? status.count ?? status.totalFiles);
+  const countLabel = Number.isFinite(count) ? `${count.toLocaleString("th-TH")} files` : "";
+  const updatedAt = status.updatedAt || status.lastIndexedAt;
+  const updatedLabel = updatedAt ? ` · ${formatDateTime(updatedAt)}` : "";
+  const dot = $("#spotlightIndexDot");
+  const label = $("#spotlightIndexStatus");
+  dot.className = "";
+
+  if (["indexing", "building", "scanning", "reindexing"].includes(phase)) {
+    dot.classList.add("indexing");
+    label.textContent = `กำลังจัดทำดัชนี${countLabel ? ` · ${countLabel}` : ""}`;
+    $("#spotlightReindexButton").disabled = true;
+    return "indexing";
+  }
+  if (["error", "failed", "unavailable", "disabled"].includes(phase)) {
+    dot.classList.add("error");
+    label.textContent = safeDisplayText(status.message) || "ดัชนีไฟล์ยังไม่พร้อมใช้งาน";
+    $("#spotlightReindexButton").disabled = state.spotlightReindexing;
+    return "error";
+  }
+  if (["idle", "empty", "not-started"].includes(phase) && !count) {
+    label.textContent = "ยังไม่มีดัชนีไฟล์ · กดจัดทำดัชนีใหม่";
+    $("#spotlightReindexButton").disabled = state.spotlightReindexing;
+    return "idle";
+  }
+
+  dot.classList.add("ready");
+  label.textContent = `พร้อมค้นหา${countLabel ? ` · ${countLabel}` : ""}${updatedLabel}`;
+  $("#spotlightReindexButton").disabled = state.spotlightReindexing;
+  return "ready";
+}
+
+function renderSpotlightIndexError(error) {
+  const forbidden = error?.status === 401 || error?.status === 403;
+  $("#spotlightIndexDot").className = "error";
+  $("#spotlightIndexStatus").textContent = forbidden
+    ? "ค้นหาไฟล์ได้เฉพาะบนเครื่องหลัก"
+    : error?.status === 404 ? "เวอร์ชันนี้ยังไม่มีดัชนีไฟล์" : "เชื่อมต่อดัชนีไฟล์ไม่สำเร็จ";
+  $("#spotlightReindexButton").disabled = true;
+}
+
+function clearSpotlightTimers() {
+  clearTimeout(state.spotlightSearchTimer);
+  clearTimeout(state.spotlightStatusTimer);
+  state.spotlightSearchTimer = null;
+  state.spotlightStatusTimer = null;
+}
+
+function scheduleSpotlightStatusRefresh(delay = 1600) {
+  clearTimeout(state.spotlightStatusTimer);
+  state.spotlightStatusTimer = setTimeout(() => {
+    if ($("#spotlightDialog").open) void refreshSpotlightStatus();
+  }, delay);
+}
+
+async function refreshSpotlightStatus() {
+  if (!spotlightIsLocal()) return;
+  try {
+    const payload = await apiFetch("/api/spotlight/status", { cache: "no-store" });
+    const phase = renderSpotlightIndexStatus(payload);
+    if (phase === "indexing") scheduleSpotlightStatusRefresh();
+  } catch (error) {
+    renderSpotlightIndexError(error);
+  }
+}
+
+async function searchSpotlight(rawQuery) {
+  const query = safeDisplayText(rawQuery);
+  state.spotlightController?.abort();
+  state.spotlightController = null;
+  if (!query) {
+    state.spotlightResults = [];
+    state.spotlightSelection = -1;
+    setSpotlightLoading(false);
+    renderSpotlightEmpty("ค้นหาไฟล์บนเครื่องนี้", "พิมพ์ชื่อไฟล์หรือโฟลเดอร์ ผลลัพธ์มาจากดัชนี local และไม่ถูกส่งออกนอกเครื่อง");
+    return;
+  }
+  if (!spotlightIsLocal()) {
+    setSpotlightLoading(false);
+    renderSpotlightEmpty("ใช้ได้เฉพาะเครื่องหลัก", "เพื่อความเป็นส่วนตัว ดัชนีไฟล์จะไม่เปิดผ่านมือถือหรือ remote access", "error");
+    return;
+  }
+
+  const controller = new AbortController();
+  state.spotlightController = controller;
+  setSpotlightLoading(true);
+  try {
+    const payload = await apiFetch(`/api/spotlight/search?q=${encodeURIComponent(query)}&limit=20`, {
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    if (state.spotlightController !== controller) return;
+    state.spotlightResults = Array.isArray(payload?.results) ? payload.results : [];
+    state.spotlightSelection = -1;
+    renderSpotlightResults(state.spotlightResults);
+    if (payload?.status) renderSpotlightIndexStatus(payload.status);
+  } catch (error) {
+    if (error.name === "AbortError") return;
+    if (state.spotlightController !== controller) return;
+    state.spotlightResults = [];
+    state.spotlightSelection = -1;
+    renderSpotlightIndexError(error);
+    renderSpotlightEmpty(
+      error.status === 401 || error.status === 403 ? "ใช้ได้เฉพาะเครื่องหลัก" : "ค้นหาไฟล์ไม่สำเร็จ",
+      error.status === 404 ? "อัปเดต RWANG backend เพื่อเปิดใช้ดัชนีไฟล์" : safeDisplayText(error.message) || "ลองใหม่อีกครั้ง",
+      "error",
+    );
+  } finally {
+    if (state.spotlightController === controller) {
+      state.spotlightController = null;
+      setSpotlightLoading(false);
+    }
+  }
+}
+
+async function openSpotlightResult(index = state.spotlightSelection) {
+  if (state.spotlightOpening || !spotlightIsLocal()) return;
+  const result = state.spotlightResults[index];
+  if (result?.openable === false) {
+    showToast("ไฟล์ชนิดนี้ถูกบล็อกเพื่อความปลอดภัย");
+    return;
+  }
+  if (!result?.id) {
+    showToast("ผลลัพธ์นี้ไม่มีรหัสไฟล์ที่ปลอดภัย");
+    return;
+  }
+  state.spotlightOpening = true;
+  for (const button of $$(".spotlight-result", $("#spotlightResults"))) button.disabled = true;
+  try {
+    await apiFetch("/api/spotlight/open", { method: "POST", body: { id: result.id } });
+    $("#spotlightDialog").close();
+    showToast(`เปิด ${safeDisplayText(result.name) || "ไฟล์"} แล้ว`);
+  } catch (error) {
+    showToast(`เปิดไฟล์ไม่สำเร็จ: ${safeDisplayText(error.message)}`, 5000);
+  } finally {
+    state.spotlightOpening = false;
+    if ($("#spotlightDialog").open) {
+      for (const button of $$(".spotlight-result", $("#spotlightResults"))) {
+        const resultIndex = Number(button.dataset.spotlightIndex);
+        button.disabled = state.spotlightResults[resultIndex]?.openable === false;
+      }
+    }
+  }
+}
+
+async function reindexSpotlight() {
+  if (state.spotlightReindexing || !spotlightIsLocal()) return;
+  state.spotlightReindexing = true;
+  $("#spotlightReindexButton").disabled = true;
+  $("#spotlightIndexDot").className = "indexing";
+  $("#spotlightIndexStatus").textContent = "กำลังเริ่มจัดทำดัชนีไฟล์...";
+  try {
+    const payload = await apiFetch("/api/spotlight/reindex", { method: "POST", body: {} });
+    const phase = renderSpotlightIndexStatus(payload);
+    showToast("เริ่มจัดทำดัชนีไฟล์ใหม่แล้ว");
+    if (phase === "indexing") scheduleSpotlightStatusRefresh(900);
+    else await refreshSpotlightStatus();
+  } catch (error) {
+    renderSpotlightIndexError(error);
+    showToast(`จัดทำดัชนีไม่สำเร็จ: ${safeDisplayText(error.message)}`, 5000);
+  } finally {
+    state.spotlightReindexing = false;
+    if (!$("#spotlightIndexDot").classList.contains("indexing")) $("#spotlightReindexButton").disabled = false;
+  }
+}
+
+function openSpotlight() {
+  if (!spotlightIsLocal()) return;
+  if ($("#settingsDialog").open) {
+    showToast("ปิด Settings ก่อนเปิดค้นหาไฟล์");
+    return;
+  }
+  const dialog = $("#spotlightDialog");
+  if (!dialog.open) {
+    state.spotlightResults = [];
+    state.spotlightSelection = -1;
+    $("#spotlightInput").value = "";
+    renderSpotlightEmpty("ค้นหาไฟล์บนเครื่องนี้", "พิมพ์ชื่อไฟล์หรือโฟลเดอร์ ผลลัพธ์มาจากดัชนี local และไม่ถูกส่งออกนอกเครื่อง");
+    dialog.showModal();
+    void refreshSpotlightStatus();
+  }
+  queueMicrotask(() => $("#spotlightInput").focus());
+}
+
+function closeSpotlight() {
+  const dialog = $("#spotlightDialog");
+  if (dialog.open) dialog.close();
+}
+
+function moveSpotlightSelection(offset) {
+  if (!state.spotlightResults.length) return;
+  const current = state.spotlightSelection < 0 ? 0 : state.spotlightSelection;
+  setSpotlightSelection(current + offset, { scroll: true });
 }
 
 function setDot(node, tone) {
@@ -708,6 +1032,9 @@ function hydrateSettings(rwang = state.rwang) {
 
 function renderRwang(rwang) {
   state.rwang = rwang;
+  const localAccess = rwang.access?.local === true;
+  $("#spotlightButton").hidden = !localAccess;
+  if (!localAccess && $("#spotlightDialog").open) closeSpotlight();
   const identity = rwang.identity || {};
   $("#wakeWordDisplay").textContent = identity.wakeWord || "อาหวัง";
   const autoSpeak = preferredAutoSpeak(rwang);
@@ -2214,6 +2541,66 @@ async function enterScopedViewer(reference) {
 
 function bindEvents() {
   for (const button of $$(".nav-button")) button.addEventListener("click", () => switchView(button.dataset.view));
+  $("#spotlightButton").addEventListener("click", openSpotlight);
+  $("#spotlightCloseButton").addEventListener("click", closeSpotlight);
+  $("#spotlightReindexButton").addEventListener("click", () => void reindexSpotlight());
+  $("#spotlightForm").addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (state.spotlightResults.length && state.spotlightSelection >= 0) {
+      void openSpotlightResult();
+      return;
+    }
+    clearTimeout(state.spotlightSearchTimer);
+    void searchSpotlight($("#spotlightInput").value);
+  });
+  $("#spotlightInput").addEventListener("input", (event) => {
+    clearTimeout(state.spotlightSearchTimer);
+    state.spotlightController?.abort();
+    state.spotlightResults = [];
+    state.spotlightSelection = -1;
+    const query = safeDisplayText(event.currentTarget.value);
+    if (!query) {
+      void searchSpotlight("");
+      return;
+    }
+    setSpotlightLoading(true);
+    renderSpotlightEmpty("กำลังค้นหา...", "ผลลัพธ์จะปรากฏจากดัชนีไฟล์บนเครื่องนี้");
+    state.spotlightSearchTimer = setTimeout(() => void searchSpotlight(query), SPOTLIGHT_SEARCH_DELAY);
+  });
+  $("#spotlightResults").addEventListener("click", (event) => {
+    const result = event.target.closest("button[data-spotlight-index]");
+    if (result) void openSpotlightResult(Number(result.dataset.spotlightIndex));
+  });
+  $("#spotlightResults").addEventListener("pointermove", (event) => {
+    const result = event.target.closest("button[data-spotlight-index]");
+    if (result) setSpotlightSelection(Number(result.dataset.spotlightIndex));
+  });
+  $("#spotlightDialog").addEventListener("click", (event) => {
+    if (event.target === event.currentTarget) closeSpotlight();
+  });
+  $("#spotlightDialog").addEventListener("close", () => {
+    clearSpotlightTimers();
+    state.spotlightController?.abort();
+    state.spotlightController = null;
+    state.spotlightOpening = false;
+    setSpotlightLoading(false);
+  });
+  document.addEventListener("keydown", (event) => {
+    const shortcut = (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "k";
+    if (shortcut && spotlightIsLocal()) {
+      event.preventDefault();
+      openSpotlight();
+      return;
+    }
+    if (!$("#spotlightDialog").open) return;
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      moveSpotlightSelection(1);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      moveSpotlightSelection(-1);
+    }
+  });
   $("#settingsButton").addEventListener("click", () => openSettings("assistant"));
   for (const button of $$('[data-open-settings]')) button.addEventListener("click", () => openSettings(button.dataset.openSettings));
   for (const button of $$("[data-settings-tab]")) button.addEventListener("click", () => selectSettingsTab(button.dataset.settingsTab));
@@ -2373,6 +2760,8 @@ function bindEvents() {
     }
   });
   window.addEventListener("beforeunload", () => {
+    clearSpotlightTimers();
+    state.spotlightController?.abort();
     disconnectEvents();
     stopRecognition();
     state.chatController?.abort();
@@ -2384,6 +2773,8 @@ function bindEvents() {
 async function bootstrap() {
   scrubLegacyAccessToken();
   bindEvents();
+  const platform = navigator.userAgentData?.platform || navigator.platform || "";
+  $("#spotlightShortcutLabel").textContent = /mac/i.test(platform) ? "⌘ K" : "CTRL K";
   setupPwa();
   initializeRemote();
   updateMcpTransportFields();

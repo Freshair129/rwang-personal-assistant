@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRwangCore } from "./rwang.mjs";
 import { createRemoteCore } from "./remote.mjs";
+import { createSpotlightIndex, handleSpotlightApi } from "./spotlight.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, "public");
@@ -132,6 +133,23 @@ function buildAllowedHosts() {
 const ALLOWED_HOSTS = buildAllowedHosts();
 let rwang;
 let remote;
+let spotlight;
+
+function spotlightRootConfiguration() {
+  const homeDir = os.homedir();
+  const configured = cleanEnv(process.env.RWANG_SPOTLIGHT_ROOTS, 8000);
+  const personalRoots = configured
+    ? configured.split(path.delimiter).map((value) => value.trim()).filter(Boolean)
+    : ["Desktop", "Documents", "Downloads", "Pictures", "Music", "Videos"]
+      .map((name) => path.join(homeDir, name));
+  return [
+    { label: "Workspace", path: __dirname },
+    ...personalRoots.slice(0, 7).map((rootPath, index) => ({
+      label: configured ? path.basename(rootPath) || `Folder ${index + 1}` : path.basename(rootPath),
+      path: rootPath,
+    })),
+  ];
+}
 
 const presets = [
   {
@@ -718,6 +736,13 @@ async function api(req, res, url) {
   if (req.method === "POST") {
     if (!enforceJsonPost(req, res)) return;
   }
+  const spotlightHandled = await handleSpotlightApi(req, res, url, {
+    principal,
+    spotlight,
+    readBody: (request) => readBody(request, 4 * 1024),
+    json,
+  });
+  if (spotlightHandled !== false) return spotlightHandled;
   if (req.method === "GET" && url.pathname === "/api/status") {
     return json(res, 200, {
       ...(await getStatus()),
@@ -859,6 +884,13 @@ server.keepAliveTimeout = 5_000;
 server.maxHeadersCount = 100;
 
 await restore();
+spotlight = await createSpotlightIndex({
+  roots: spotlightRootConfiguration(),
+  homeDir: os.homedir(),
+  workspaceRoot: __dirname,
+  refreshIntervalMs: Number(process.env.RWANG_SPOTLIGHT_REFRESH_MS || 5 * 60 * 1000),
+  maxFiles: Number(process.env.RWANG_SPOTLIGHT_MAX_FILES || 50_000),
+});
 rwang = await createRwangCore({
   rootDir: __dirname,
   ollamaUrl: OLLAMA,
@@ -866,6 +898,7 @@ rwang = await createRwangCore({
   protocol: TRANSPORT_PROTOCOL,
   host: HOST,
   publicOrigin: PUBLIC_ORIGIN,
+  spotlight,
   getSystemStatus: getStatus,
   notify: () => {
     broadcast();
@@ -888,6 +921,15 @@ remote = createRemoteCore({
   getPolicy: rwang.remotePolicy,
   getIceServers: () => ICE_SERVERS,
 });
+void spotlight.start().then((indexStatus) => {
+  addLog(
+    indexStatus.truncated ? "warning" : "success",
+    `Spotlight พร้อมค้นหา ${indexStatus.indexedFiles.toLocaleString("en-US")} ไฟล์`,
+    "spotlight",
+  );
+}).catch(() => {
+  addLog("error", "Spotlight สร้างดัชนีไฟล์ไม่สำเร็จ", "spotlight");
+});
 server.listen(PORT, HOST, () => {
   console.log(`RWANG Local Assistant: ${TRANSPORT_PROTOCOL}://127.0.0.1:${PORT}`);
   console.log(TLS_OPTIONS
@@ -905,7 +947,7 @@ async function shutdown() {
   shuttingDown = true;
   for (const controller of state.controllers.values()) controller.abort();
   closeQueueEventClients();
-  await Promise.allSettled([remote.close(), rwang.close()]);
+  await Promise.allSettled([remote.close(), rwang.close(), spotlight.close()]);
   const deadline = setTimeout(() => {
     server.closeAllConnections?.();
     process.exit(0);

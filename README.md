@@ -19,6 +19,7 @@ RWANG คือผู้ช่วยส่วนตัวแบบ local-first �
 - Remote deck จากมือถือควบคุมเฉพาะหน้า RWANG (`navigate`, `scroll`, `spotlight`) ไม่มี OS mouse/keyboard/shell input
 - Schedule เก็บ prompt ตามเวลาและให้ผู้ใช้กด RUN; external tool ทุกตัวยังคงผ่าน approval policy เดิม
 - Document Intelligence เป็น core capability: มี 7 playbooks สำหรับสถาปัตยกรรมเอกสาร, preflight, document graph, traceability และ implementation/exec plan พร้อม self-audit แบบอ่านอย่างเดียว
+- **RWANG Spotlight** ค้นหาไฟล์จากดัชนี metadata ในเครื่องด้วย `Ctrl/Cmd + K` พร้อมเปิดไฟล์ชนิดปลอดภัยจาก opaque result ID
 
 ## สิ่งที่ต้องมี
 
@@ -107,6 +108,20 @@ Face Profile และ Voice Profile เป็นการเทียบ templa
 
 สร้าง routine จาก Loadout โดยกำหนดชื่อ เวลา repeat และ prompt เมื่อถึงเวลา RWANG จะแสดงสถานะ DUE แต่ไม่ดำเนิน external action เอง ผู้ใช้ต้องกด RUN เพื่อส่ง prompt เข้า Assistant การเรียก Home Assistant, webhook หรือ MCP ที่เกิดจาก prompt นั้นยังสร้าง approval card ตามปกติ Schedule ที่พลาดเวลาสามารถตั้งให้รอรอบเปิดครั้งถัดไปหรือข้ามได้
 
+## RWANG Spotlight
+
+กด `Ctrl + K` บน Windows/Linux หรือ `Cmd + K` บน macOS เพื่อเปิดหน้าค้นหาแบบ Spotlight จากหน้า Assistant ดัชนีเริ่มสร้างเบื้องหลังเมื่อเปิด RWANG และรีเฟรชทุก 5 นาที ค่าเริ่มต้นสแกน `Desktop`, `Documents`, `Downloads`, `Pictures`, `Music`, `Videos` และโฟลเดอร์โปรเจกต์ RWANG โดยค้นจากชื่อไฟล์และชื่อโฟลเดอร์ในพาธเท่านั้น ไม่อ่านข้อความภายในไฟล์และไม่บันทึกรายการไฟล์เป็นฐานข้อมูลถาวร
+
+- จำกัดสูงสุด 50,000 ไฟล์, 12 ระดับ และ 30 วินาทีต่อรอบ; กด **จัดทำดัชนีใหม่** เพื่อรีเฟรชทันที
+- ข้าม hidden folders, credential folders, `AppData`, dependency caches, symlink และ junction/reparse point
+- ผลลัพธ์ส่งไปยัง browser เป็น opaque ID กับพาธแบบ `Root/relative/path` โดยไม่ส่ง absolute path
+- ก่อนเปิด ระบบตรวจ canonical path, file identity และขอบเขต root ซ้ำ แล้วเรียก OS launcher ด้วย argument แบบตายตัวโดยไม่ผ่าน shell
+- เปิดตรงจาก UI ได้เฉพาะไฟล์เอกสาร/ภาพ/เสียง/วิดีโอใน allowlist; executable, script, shortcut, macro-enabled Office และชนิดไฟล์ที่ไม่รู้จักถูกบล็อก
+- API ค้นหา, reindex และเปิดไฟล์รับเฉพาะคำขอ loopback จากเครื่องหลัก มือถือและ master/device token ผ่าน LAN ใช้งานไม่ได้
+- Agent มีเครื่องมือค้นหา metadata แบบอ่านอย่างเดียวเฉพาะภายใน RWANG workspace และไม่มีเครื่องมือเปิดไฟล์
+
+ปรับค่าได้ใน `.env` โดยอ้างอิง `.env.example`: `RWANG_SPOTLIGHT_ROOTS` (เฉพาะ absolute folders ใต้ user profile), `RWANG_SPOTLIGHT_MAX_FILES` และ `RWANG_SPOTLIGHT_REFRESH_MS` การกำหนด root เป็น user-profile ทั้งก้อน, UNC/device path หรือโฟลเดอร์นอก profile จะถูกปฏิเสธ
+
 ## Document Intelligence core
 
 RWANG รวม [Freshair129/rwang-plugin](https://github.com/Freshair129/rwang-plugin) เป็นความสามารถหลักแบบ local-first โดย pin ที่ release `v1.3.0` และ commit `7354738094432fed22d6e00568315e1a1bd8fe15` สำเนาที่ใช้รันอยู่ใน `capabilities/rwang-document-intelligence/` จึงไม่ดึงหรือรันโค้ดจาก branch `main` อัตโนมัติ
@@ -176,7 +191,7 @@ RWANG อนุญาตให้อ่าน entity ได้ทันที �
 pnpm install      # ติดตั้ง dependencies
 pnpm start        # เปิด RWANG server
 pnpm check        # ตรวจ syntax ของ server, agent, remote และ perception scripts
-pnpm test:security # ตรวจ pairing, token scope, remote grant และ invite replay
+pnpm test:security # ตรวจ Spotlight, pairing, token scope, remote grant และ invite replay
 ```
 
 ## เตรียม GitHub

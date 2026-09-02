@@ -27,6 +27,11 @@
       <button class="nav-button" data-view="systems" type="button">SYSTEMS</button>
     </nav>
     <div class="top-actions">
+      <button class="spotlight-button" id="spotlightButton" type="button" hidden aria-label="ค้นหาไฟล์ในเครื่อง" aria-haspopup="dialog" aria-controls="spotlightDialog">
+        <span aria-hidden="true">⌕</span>
+        <strong>ค้นหาไฟล์</strong>
+        <kbd id="spotlightShortcutLabel">CTRL K</kbd>
+      </button>
       <div class="connection" id="connection">
         <i></i>
         <span><strong id="ollamaState">กำลังตรวจสอบ</strong><small id="versionLabel">OLLAMA —</small></span>
@@ -492,6 +497,37 @@
     <span>RWANG / LOCAL-FIRST PERSONAL INTELLIGENCE</span>
     <span id="footerStatus">PRIVATE BY DEFAULT · HUMAN APPROVAL ENABLED</span>
   </footer>
+
+  <dialog class="spotlight-dialog" id="spotlightDialog" aria-labelledby="spotlightTitle">
+    <section class="spotlight-shell">
+      <form class="spotlight-search" id="spotlightForm" role="search">
+        <span class="spotlight-search-mark" aria-hidden="true">⌕</span>
+        <label class="sr-only" for="spotlightInput" id="spotlightTitle">ค้นหาไฟล์ในเครื่อง</label>
+        <input id="spotlightInput" type="search" autocomplete="off" spellcheck="false" placeholder="ค้นหาชื่อไฟล์ นามสกุล หรือโฟลเดอร์..." aria-controls="spotlightResults" aria-autocomplete="list">
+        <span class="spotlight-spinner" id="spotlightSpinner" hidden aria-label="กำลังค้นหา"></span>
+        <button class="spotlight-close" id="spotlightCloseButton" type="button" aria-label="ปิดการค้นหา">ESC</button>
+      </form>
+
+      <div class="spotlight-index-bar">
+        <p><i id="spotlightIndexDot"></i><span id="spotlightIndexStatus">กำลังตรวจสอบดัชนีไฟล์...</span></p>
+        <button id="spotlightReindexButton" type="button">จัดทำดัชนีใหม่</button>
+      </div>
+
+      <div class="spotlight-results" id="spotlightResults" role="listbox" aria-label="ผลการค้นหาไฟล์" aria-live="polite">
+        <div class="spotlight-empty">
+          <span aria-hidden="true">⌕</span>
+          <strong>ค้นหาไฟล์บนเครื่องนี้</strong>
+          <p>พิมพ์ชื่อไฟล์หรือโฟลเดอร์ ผลลัพธ์มาจากดัชนี local และไม่ถูกส่งออกนอกเครื่อง</p>
+        </div>
+      </div>
+
+      <div class="spotlight-footer">
+        <span><kbd>↑</kbd><kbd>↓</kbd> เลือก</span>
+        <span><kbd>ENTER</kbd> เปิดไฟล์</span>
+        <span class="spotlight-local-note">LOCAL FILE INDEX · THIS DEVICE ONLY</span>
+      </div>
+    </section>
+  </dialog>
 
   <dialog id="settingsDialog">
     <form method="dialog" class="dialog-head">
