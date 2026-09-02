@@ -4,6 +4,12 @@ RWANG คือผู้ช่วยส่วนตัวแบบ local-first �
 
 โฟลเดอร์และชื่อ package ของโปรเจกต์คือ `C:\Users\pc\workspace\rwang-local-assistant`
 
+## ทำไมชื่ออาหวัง?
+
+ชื่อ “อาหวัง” เป็น AI disclosure by name: ระบบสนทนาถูกสร้างมาให้ช่วย พูดคุย และบางครั้งอาจตอบให้ถูกใจโดยไม่ได้แปลว่าคำตอบนั้นถูกเสมอ ผู้ใช้จึงควรใช้ RWANG เป็นผู้ช่วย ตรวจหลักฐานเมื่อเรื่องสำคัญ และเก็บการตัดสินใจสุดท้ายไว้กับตัวเอง
+
+รายละเอียด persona, Agreement Contract และ acceptance criteria อยู่ใน [PRD-RWANG-PERSONA.md](docs/PRD-RWANG-PERSONA.md)
+
 ## ความสามารถหลัก
 
 - แชทกับโมเดล Ollama แบบ streaming พร้อมเลือก ดาวน์โหลด โหลด และ unload โมเดล
@@ -213,3 +219,51 @@ git push -u origin main
 ```
 
 หากใช้ SSH ให้เปลี่ยน remote เป็น `git@github.com:USERNAME/rwang-local-assistant.git` และตรวจด้วย `git remote -v` ก่อน push
+
+## Windows Desktop (Tauri) และ release pipeline
+
+RWANG มี Windows-first Tauri v2 shell ที่คง browser/PWA เป็น fallback เดิมไว้
+เสมอ Desktop host จะ launch Node sidecar บน loopback แบบเลือกพอร์ตชั่วคราว รอ
+JSON `ready` และ `GET /api/health` ก่อนเปิด WebView โดยแยก resource, data,
+workspace และ capability roots ตาม `.env.example` การเปิด
+`/desktop-diagnostics.html` ใช้ตรวจ media parity ใน WebView แบบ local-only
+และ active camera/microphone/display จะเริ่มได้จากปุ่มผู้ใช้เท่านั้น
+
+คำสั่งตรวจและ build ใน Windows developer shell:
+
+```powershell
+pnpm install --frozen-lockfile
+pnpm check
+pnpm test:security
+pnpm test:desktop-contract
+pnpm desktop:runtime
+pnpm desktop:stage
+cargo fmt --all --manifest-path src-tauri/Cargo.toml -- --check
+cargo check --manifest-path src-tauri/Cargo.toml
+cargo test --manifest-path src-tauri/Cargo.toml
+pnpm exec tauri build --no-bundle       # PR/source gate
+pnpm exec tauri build --bundles nsis    # local unsigned installer
+```
+
+`.github/workflows/desktop.yml` รันชุดตรวจเดียวกันบน `windows-latest` ด้วย
+Node v24.20.0, pnpm 11 และ Rust MSVC ทุก pull request/main push; การ push tag `v*`
+หรือกด workflow dispatch พร้อม `build_release=true` จะตรวจ archive/Node SHA256
+และ LICENSE แล้วสร้าง NSIS artifact,
+`SHA256SUMS.txt` และ `sbom-placeholder.json` เป็น workflow artifact เท่านั้น
+ไม่มีขั้นตอน auto-publish, auto-push หรือสร้าง GitHub Release ให้ตรวจและ
+ดาวน์โหลดด้วยตนเองก่อนเสมอ Tauri resource map ชี้เฉพาะ
+`desktop/stage/rwang`; pipeline จะไม่ copy Node จาก PATH เป็น fallback
+และจะ fail closed เมื่อ archive หรือ digest ไม่ตรงสเปกทางการ
+
+คำเตือน: installer จาก workflow นี้ยัง unsigned เพราะ repository ยังไม่ได้
+ตั้ง signing secret/ใบรับรอง จึงอาจแสดง SmartScreen warning และยังไม่ใช่
+production release ควรทดสอบใน VM/เครื่องสะอาด ตรวจ checksum และเซ็นด้วย
+กระบวนการ release ที่อนุมัติก่อนแจกจ่ายจริง
+
+Rollback ทำได้โดยเก็บ desktop data root
+`%LOCALAPPDATA%\com.freshair129.rwang\data` ไว้ ไม่ลบ config/queue ตอนถอน
+installer แล้วติดตั้ง installer รุ่นก่อนหน้า ส่วน browser/PWA ยังคงใช้ state แยก
+ที่ `%LOCALAPPDATA%\RWANG\data` และ fallback ผ่าน `pnpm start` /
+`Start RWANG.cmd` ได้ทันที หาก desktop เปิดไม่ได้ให้ใช้ browser ต่อจนกว่าจะตรวจ
+runtime, media และ installer ใหม่ผ่าน; ระบบยังไม่มี auto-update หรือการ publish
+อัตโนมัติในขั้นตอนนี้

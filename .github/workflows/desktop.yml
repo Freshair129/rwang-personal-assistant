@@ -1,0 +1,170 @@
+name: Windows desktop
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      build_release:
+        description: "Build the unsigned NSIS artifact and provenance placeholders"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: 24.20.0
+  PNPM_VERSION: 11.19.0
+  RUST_TOOLCHAIN: stable-x86_64-pc-windows-msvc
+
+jobs:
+  desktop-ci:
+    name: Windows checks and PR desktop gate
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm 11
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Set up Rust MSVC toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: rustfmt
+
+      - name: Install JavaScript dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Acquire pinned official Node 24 runtime
+        shell: pwsh
+        run: .\scripts\acquire-node-runtime.ps1 -ReplaceExisting
+
+      - name: Stage deterministic desktop runtime
+        shell: pwsh
+        run: pnpm desktop:stage
+
+      - name: Run JavaScript syntax and security checks
+        run: |
+          pnpm check
+          node --check public/desktop-diagnostics.js
+          pnpm test:security
+
+      - name: Check repository diff whitespace
+        run: git diff --check
+
+      - name: Run desktop contract tests
+        run: pnpm test:desktop-contract
+
+      - name: Check Rust formatting
+        run: cargo fmt --all --manifest-path src-tauri/Cargo.toml -- --check
+
+      - name: Check Rust desktop host
+        run: cargo check --manifest-path src-tauri/Cargo.toml
+
+      - name: Run Rust desktop tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Build Tauri source gate without bundling
+        run: pnpm exec tauri build --no-bundle
+
+  desktop-release:
+    name: Unsigned NSIS artifact (tag or manual dispatch)
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.build_release == true)
+    needs: desktop-ci
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm 11
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Set up Rust MSVC toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: rustfmt
+
+      - name: Install JavaScript dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Acquire pinned official Node 24 runtime
+        shell: pwsh
+        run: .\scripts\acquire-node-runtime.ps1 -ReplaceExisting
+
+      - name: Stage deterministic desktop runtime
+        shell: pwsh
+        run: pnpm desktop:stage
+
+      - name: Verify the staged runtime security contract
+        run: |
+          pnpm test:security
+          pnpm test:desktop-contract
+
+      - name: Build NSIS bundle
+        run: pnpm exec tauri build --bundles nsis
+
+      - name: Collect NSIS checksum and SBOM placeholder
+        shell: pwsh
+        run: |
+          $bundleDir = Join-Path $env:GITHUB_WORKSPACE "src-tauri\target\release\bundle\nsis"
+          $artifactDir = Join-Path $env:GITHUB_WORKSPACE "desktop-release-artifacts"
+          New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
+          $nsisFiles = @(Get-ChildItem -LiteralPath $bundleDir -Filter "*.exe" -File -ErrorAction SilentlyContinue)
+          if ($nsisFiles.Count -eq 0) { throw "Tauri did not produce an NSIS executable in $bundleDir" }
+
+          $copied = foreach ($file in $nsisFiles) {
+            $destination = Join-Path $artifactDir $file.Name
+            Copy-Item -LiteralPath $file.FullName -Destination $destination -Force -PassThru
+          }
+          $hashLines = foreach ($file in $copied) {
+            $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($file.Name)"
+          }
+          $hashLines | Set-Content -LiteralPath (Join-Path $artifactDir "SHA256SUMS.txt") -Encoding utf8
+
+          $sbom = [ordered]@{
+            bomFormat = "CycloneDX-placeholder"
+            specVersion = "1.5"
+            status = "placeholder"
+            reason = "No SBOM generator is configured in this workflow yet."
+            generatedAt = (Get-Date).ToUniversalTime().ToString("o")
+            gitRevision = $env:GITHUB_SHA
+            runtimeStagingMode = "pinned-official-node-v24.20.0"
+            artifacts = @($copied | ForEach-Object { $_.Name })
+            components = @()
+          }
+          $sbom | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $artifactDir "sbom-placeholder.json") -Encoding utf8
+          Write-Warning "No signing secret or signing step is configured. NSIS artifacts are unsigned and must not be treated as production releases."
+
+      - name: Upload NSIS artifact, checksum, and SBOM placeholder
+        uses: actions/upload-artifact@v4
+        with:
+          name: RWANG-desktop-${{ github.ref_name }}
+          path: desktop-release-artifacts/*
+          if-no-files-found: error

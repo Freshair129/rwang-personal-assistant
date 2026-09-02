@@ -1,0 +1,6 @@
+# Generated only when a branded icon has not yet been staged.
+icons/icon.png
+
+# Cargo/Tauri build outputs and generated permission schemas.
+/target/
+/gen/

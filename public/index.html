@@ -99,10 +99,6 @@
             <h1>คุยกับอาหวัง</h1>
           </div>
           <div class="conversation-controls">
-            <label>
-              <span>LOCAL MODEL</span>
-              <select id="modelSelect" aria-label="เลือกโมเดล"><option>กำลังโหลด...</option></select>
-            </label>
             <label class="compact-toggle">
               <input id="autoSpeakToggle" type="checkbox" checked>
               <span>AUTO SPEAK</span>
@@ -136,6 +132,13 @@
             </div>
           </div>
         </form>
+        <div class="composer-model">
+          <label for="modelSelect">
+            <span>ACTIVE MODEL</span>
+            <select id="modelSelect" aria-label="เลือกโมเดลสำหรับแชท" aria-describedby="assistantDisclosure"><option>กำลังโหลด...</option></select>
+          </label>
+          <p class="assistant-disclosure" id="assistantDisclosure"><strong>ทำไมชื่ออาหวัง?</strong> เพราะ AI สนทนาถูกสร้างมาให้ช่วย และบางครั้งอาจตอบให้ถูกใจโดยไม่ได้แปลว่าคำตอบถูกเสมอ โปรดตรวจข้อมูลสำคัญและเก็บการตัดสินใจสุดท้ายไว้กับคุณ</p>
+        </div>
       </section>
     </section>
 

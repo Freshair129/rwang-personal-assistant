@@ -1,5 +1,6 @@
 import { createHash, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
-import { readFile, rename, writeFile } from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
+import { copyFile, lstat, mkdir, readFile, realpath, rename, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
@@ -41,6 +42,13 @@ const SCHEDULE_INTERVALS = {
   daily: 24 * 60 * 60 * 1000,
   weekly: 7 * 24 * 60 * 60 * 1000,
 };
+export const LEGACY_MUTABLE_DATA_ALLOWLIST = Object.freeze([
+  ".rwang-config.json",
+  ".rwang-tool-fingerprints.json",
+  ".queue-state.json",
+  "rwang.log",
+]);
+export const LEGACY_DATA_MIGRATION_MARKER = ".rwang-legacy-data-v1.json";
 const BUILTIN_SKILLS = [
   { id: "core_status", name: "System Scan", description: "ตรวจ Ollama โมเดล คิว หน่วยความจำ และพื้นที่ว่าง", category: "CORE", rarity: "legendary", level: 5, defaultEnabled: true },
   { id: "scheduler", name: "Chrono Queue", description: "เก็บ prompt ตามเวลาและปล่อยให้ผู้ใช้สั่งรันเมื่อถึงกำหนด", category: "AUTOMATION", rarity: "epic", level: 4, defaultEnabled: true },
@@ -133,6 +141,19 @@ function normalizeBaseUrl(value) {
   return `${url.protocol}//${url.host}${pathname}`;
 }
 
+function sanitizeStoredBaseUrl(value) {
+  const supplied = cleanText(value, 1200);
+  if (!supplied) return "";
+  try {
+    // Config files may have been written by the pre-split runtime. Normalize
+    // those values on load so credentials/query strings cannot reappear in a
+    // snapshot, while preserving a valid origin and optional base path.
+    return normalizeBaseUrl(supplied);
+  } catch {
+    return "";
+  }
+}
+
 function normalizeFeatures(input) {
   return Object.fromEntries(FEATURE_KEYS.map((key) => [key, input?.[key] !== false]));
 }
@@ -162,6 +183,20 @@ function normalizeAccessDevice(device) {
     createdAt,
     expiresAt,
     lastUsedAt: validIso(device?.lastUsedAt),
+  };
+}
+
+export function publicApprovalSnapshot(item, { local = false } = {}) {
+  const { internal, ...publicItem } = item || {};
+  if (local) return publicItem;
+  return {
+    id: cleanText(item?.id, 160),
+    kind: cleanText(item?.kind, 80),
+    label: cleanText(item?.label, 140),
+    risk: ["normal", "high"].includes(item?.risk) ? item.risk : "normal",
+    status: cleanText(item?.status, 40),
+    createdAt: validIso(item?.createdAt),
+    updatedAt: validIso(item?.updatedAt),
   };
 }
 
@@ -237,7 +272,7 @@ function normalizeConfig(input) {
     },
     homeAssistant: {
       enabled: Boolean(homeAssistant.enabled),
-      baseUrl: cleanText(homeAssistant.baseUrl, 1200),
+      baseUrl: sanitizeStoredBaseUrl(homeAssistant.baseUrl),
       token: cleanText(homeAssistant.token, 4000),
     },
     features: normalizeFeatures(input?.features),
@@ -291,8 +326,137 @@ async function writeJsonAtomic(file, tempFile, value) {
   await rename(tempFile, file);
 }
 
+function isContainedPath(parent, child, { strict = false } = {}) {
+  const relative = path.relative(parent, child);
+  if (!relative) return !strict;
+  return !relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative);
+}
+
+function corePathError(code, message) {
+  const error = new Error(message);
+  error.code = code;
+  return error;
+}
+
+function normalizeCorePath(name, supplied) {
+  if (typeof supplied !== "string" || !supplied.trim() || !path.isAbsolute(supplied.trim())) {
+    throw corePathError(`INVALID_${name}`, `${name} must be an absolute path`);
+  }
+  return path.resolve(supplied.trim());
+}
+
+async function resolveCoreDirectory(name, supplied, { create = false } = {}) {
+  const requested = normalizeCorePath(name, supplied);
+  try {
+    if (create) await mkdir(requested, { recursive: true });
+    const requestedStats = await lstat(requested);
+    if (!requestedStats.isDirectory() || requestedStats.isSymbolicLink()) {
+      throw corePathError(`INVALID_${name}`, `${name} must be a directory`);
+    }
+    const canonical = await realpath(requested);
+    const canonicalStats = await lstat(canonical);
+    if (!canonicalStats.isDirectory() || canonicalStats.isSymbolicLink()) {
+      throw corePathError(`INVALID_${name}`, `${name} must be a directory`);
+    }
+    return canonical;
+  } catch (error) {
+    if (error?.code === `INVALID_${name}`) throw error;
+    throw corePathError(`INVALID_${name}`, `${name} is unavailable or inaccessible`);
+  }
+}
+
+function migrationError(message) {
+  const error = new Error(message);
+  error.code = "LEGACY_MIGRATION_FAILED";
+  return error;
+}
+
+async function existingPathState(filePath) {
+  try {
+    return await lstat(filePath);
+  } catch (error) {
+    if (error?.code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+/**
+ * Copy stable mutable files left by the pre-split single-root runtime into the
+ * new data root. This function is deliberately allowlist-only and idempotent:
+ * it never scans, deletes, or overwrites either root. COPYFILE_EXCL closes the
+ * check-then-copy race when two launchers start together.
+ */
+export async function migrateLegacyMutableData({ legacyRoot, dataRoot } = {}) {
+  if (!legacyRoot || !dataRoot) return { copied: [], skipped: [], marker: false, reason: "not-configured" };
+
+  let sourceRoot;
+  let targetRoot;
+  try {
+    sourceRoot = await realpath(path.resolve(String(legacyRoot)));
+    targetRoot = await realpath(path.resolve(String(dataRoot)));
+  } catch {
+    throw migrationError("legacy data roots are unavailable");
+  }
+  if (sourceRoot === targetRoot) return { copied: [], skipped: [], marker: false, reason: "same-root" };
+  if (isContainedPath(sourceRoot, targetRoot) || isContainedPath(targetRoot, sourceRoot)) {
+    throw migrationError("legacy and data roots must remain separate");
+  }
+
+  const markerFile = path.join(targetRoot, LEGACY_DATA_MIGRATION_MARKER);
+  if (await existingPathState(markerFile)) return { copied: [], skipped: [], marker: true, reason: "already-complete" };
+
+  const copied = [];
+  const skipped = [];
+  for (const filename of LEGACY_MUTABLE_DATA_ALLOWLIST) {
+    const sourceFile = path.join(sourceRoot, filename);
+    const targetFile = path.join(targetRoot, filename);
+    if (await existingPathState(targetFile)) {
+      skipped.push({ filename, reason: "destination-present" });
+      continue;
+    }
+    const sourceStats = await existingPathState(sourceFile);
+    if (!sourceStats) {
+      skipped.push({ filename, reason: "source-absent" });
+      continue;
+    }
+    if (sourceStats.isSymbolicLink() || !sourceStats.isFile()) {
+      throw migrationError(`legacy entry is not a regular file: ${filename}`);
+    }
+    const canonicalSource = await realpath(sourceFile).catch(() => null);
+    if (!canonicalSource || !isContainedPath(sourceRoot, canonicalSource, { strict: true })) {
+      throw migrationError(`legacy entry is outside the resource root: ${filename}`);
+    }
+    try {
+      await copyFile(canonicalSource, targetFile, fsConstants.COPYFILE_EXCL);
+      copied.push(filename);
+    } catch (error) {
+      if (error?.code === "EEXIST") {
+        skipped.push({ filename, reason: "destination-present" });
+        continue;
+      }
+      if (error?.code === "ENOENT") {
+        skipped.push({ filename, reason: "source-absent" });
+        continue;
+      }
+      throw migrationError(`could not copy legacy entry: ${filename}`);
+    }
+  }
+
+  const marker = JSON.stringify({ version: 1, files: copied, completedAt: now() }, null, 2);
+  try {
+    await writeFile(markerFile, `${marker}\n`, { encoding: "utf8", flag: "wx" });
+  } catch (error) {
+    if (error?.code !== "EEXIST") throw migrationError("could not record legacy migration marker");
+  }
+  return { copied, skipped, marker: true, reason: copied.length ? "copied" : "nothing-to-copy" };
+}
+
 export async function createRwangCore({
   rootDir,
+  resourceDir,
+  dataDir,
+  workspaceDir,
+  capabilityDir,
   ollamaUrl,
   port,
   protocol = "http",
@@ -305,13 +469,54 @@ export async function createRwangCore({
   onTokenRotated = async () => {},
   onAccessRevoked = async () => {},
 }) {
-  const configFile = path.join(rootDir, ".rwang-config.json");
-  const configTempFile = path.join(rootDir, ".rwang-config.tmp");
-  const fingerprintFile = path.join(rootDir, ".rwang-tool-fingerprints.json");
-  const fingerprintTempFile = path.join(rootDir, ".rwang-tool-fingerprints.tmp");
+  // `rootDir` remains a compatibility alias for callers that predate separate
+  // resource/data/workspace roots. New callers should pass each root explicitly.
+  const requestedWorkspaceDir = workspaceDir || rootDir || resourceDir;
+  if (!requestedWorkspaceDir) throw corePathError("INVALID_WORKSPACE_DIR", "WORKSPACE_DIR is required");
+  const workspaceRoot = await resolveCoreDirectory("WORKSPACE_DIR", requestedWorkspaceDir);
+  const resourceRoot = resourceDir
+    ? await resolveCoreDirectory("RESOURCE_DIR", resourceDir)
+    : null;
+  const requestedDataPath = normalizeCorePath("DATA_DIR", dataDir || rootDir || workspaceRoot);
+  const legacySingleRoot = !dataDir && !workspaceDir && !resourceDir;
+  if (!legacySingleRoot) {
+    if (resourceRoot && (isContainedPath(resourceRoot, requestedDataPath) || isContainedPath(requestedDataPath, resourceRoot))) {
+      throw corePathError("INVALID_DATA_DIR", "DATA_DIR must be separate from RESOURCE_DIR");
+    }
+    if (isContainedPath(workspaceRoot, requestedDataPath) || isContainedPath(requestedDataPath, workspaceRoot)) {
+      throw corePathError("INVALID_DATA_DIR", "DATA_DIR must be separate from WORKSPACE_DIR");
+    }
+  }
+  const dataRoot = await resolveCoreDirectory("DATA_DIR", requestedDataPath, { create: true });
+  const capabilityRoot = capabilityDir
+    ? await resolveCoreDirectory("CAPABILITY_DIR", capabilityDir)
+    : resourceRoot
+      ? await resolveCoreDirectory(
+        "CAPABILITY_DIR",
+        path.join(resourceRoot, "capabilities", "rwang-document-intelligence"),
+      )
+      : null;
+  if (resourceRoot && capabilityRoot && !isContainedPath(resourceRoot, capabilityRoot, { strict: true })) {
+    throw corePathError("INVALID_CAPABILITY_DIR", "CAPABILITY_DIR must be contained by RESOURCE_DIR");
+  }
+  if (resourceRoot && (isContainedPath(resourceRoot, dataRoot) || isContainedPath(dataRoot, resourceRoot))) {
+    throw corePathError("INVALID_DATA_DIR", "DATA_DIR must be separate from RESOURCE_DIR");
+  }
+  if (isContainedPath(workspaceRoot, dataRoot) || isContainedPath(dataRoot, workspaceRoot)) {
+    // Preserve the old single-root API, while preventing accidental overlap for
+    // the new split-root API.
+    if (!legacySingleRoot) throw corePathError("INVALID_DATA_DIR", "DATA_DIR must be separate from WORKSPACE_DIR");
+  }
+  const configFile = path.join(dataRoot, ".rwang-config.json");
+  const configTempFile = path.join(dataRoot, ".rwang-config.tmp");
+  const fingerprintFile = path.join(dataRoot, ".rwang-tool-fingerprints.json");
+  const fingerprintTempFile = path.join(dataRoot, ".rwang-tool-fingerprints.tmp");
   let config = normalizeConfig(await readJson(configFile, defaultConfig()));
   let fingerprints = await readJson(fingerprintFile, {});
-  const documentIntelligence = createDocumentIntelligence({ rootDir });
+  const documentIntelligence = createDocumentIntelligence({
+    rootDir: workspaceRoot,
+    ...(capabilityRoot ? { capabilityDir: capabilityRoot } : {}),
+  });
   const documentSkillIds = documentIntelligence.skills.map(({ id }) => id);
   let scheduleTimer = null;
   let scheduleTickRunning = false;
@@ -347,11 +552,11 @@ export async function createRwangCore({
     }
   }
 
-  function publicApprovals() {
+  function publicApprovals(local = false) {
     pruneApprovals();
     return [...approvals.values()]
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-      .map(({ internal, ...item }) => item);
+      .map((item) => publicApprovalSnapshot(item, { local }));
   }
 
   function createApproval({ kind, label, summary, risk = "normal", payload, internal }) {
@@ -757,7 +962,7 @@ export async function createRwangCore({
       return new Experimental_StdioMCPTransport({
         command: server.command,
         args: server.args || [],
-        cwd: server.cwd || rootDir,
+        cwd: server.cwd || workspaceRoot,
         stderr: "inherit",
       });
     }
@@ -1174,6 +1379,12 @@ export async function createRwangCore({
       "You are RWANG (อาหวัง), a private local personal assistant inspired by a calm mission-control AI.",
       "Reply in Thai unless the user clearly uses another language. Be concise, practical, and friendly.",
       "You run through Ollama on the user's own machine. Never claim an external action happened unless a tool result says it completed.",
+      "Your warm tone is a designed interface, not proof of human feelings or correctness. Identify yourself as RWANG (อาหวัง), an AI assistant running locally through Ollama; never claim human feelings, consciousness, attachment, or concern.",
+      "Accuracy and user agency come before agreement or rapport. Do not flatter, mirror, or agree merely to please; politely challenge false, unsupported, or inconsistent premises.",
+      "When you agree, explain why. Distinguish known facts, inferences, subjective preferences, and recommendations; state uncertainty, assumptions, or missing evidence when material.",
+      "For consequential decisions, offer a verification path and leave the final judgment with the user.",
+      "Never hide incomplete work behind a placeholder, TODO, mock, or stub. Label it explicitly, explain what remains, and never count it as completion.",
+      "Do not repeat this AI disclosure in every reply; apply it through honest behavior and mention it when identity, trust, consequential advice, or uncertainty is relevant.",
       "Read-only tools may run immediately. Home Assistant, IoT webhook, and MCP action tools only create a pending approval.",
       "When an approval is created, clearly tell the user to review the approval card in RWANG before anything will run.",
       "Never invent entity IDs, server names, device state, tool output, or system status. Use tools when facts are needed.",
@@ -1347,7 +1558,11 @@ export async function createRwangCore({
       homeAssistant: {
         enabled: config.homeAssistant.enabled,
         configured: Boolean(config.homeAssistant.baseUrl && config.homeAssistant.token),
-        baseUrl: config.homeAssistant.baseUrl,
+        baseUrl: local
+          ? config.homeAssistant.baseUrl
+          : config.homeAssistant.baseUrl
+            ? redactUrl(config.homeAssistant.baseUrl)
+            : "",
         hasToken: Boolean(config.homeAssistant.token),
         ...integrationStatus.homeAssistant,
       },
@@ -1367,7 +1582,7 @@ export async function createRwangCore({
         })(),
         hasHeaders: Object.keys(hook.headers || {}).length > 0,
       })),
-      approvals: publicApprovals(),
+      approvals: publicApprovals(local),
     };
   }
 

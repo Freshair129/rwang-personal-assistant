@@ -1,0 +1,31 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "RWANG",
+  "version": "0.5.0",
+  "identifier": "com.freshair129.rwang",
+  "build": {
+    "frontendDist": "../public"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [],
+    "trayIcon": {
+      "iconPath": "icons/icon.png",
+      "showMenuOnLeftClick": true,
+      "tooltip": "RWANG"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": ["icons/icon.png"],
+    "resources": {
+      "../desktop/stage/rwang/": "rwang/"
+    },
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      }
+    }
+  }
+}

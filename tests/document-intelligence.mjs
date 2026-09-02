@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { realpathSync } from "node:fs";
-import { appendFile, cp, mkdtemp, rm } from "node:fs/promises";
+import { appendFile, cp, mkdir, mkdtemp, readFile, rm, symlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,7 +11,60 @@ import {
 } from "../document-intelligence.mjs";
 
 const rootDir = realpathSync(path.dirname(fileURLToPath(new URL("../package.json", import.meta.url))));
+const adapterSource = await readFile(path.join(rootDir, "document-intelligence.mjs"), "utf8");
+assert.match(adapterSource, /SCAN_SKIPPED_DIRECTORIES[\s\S]*?"\.pnpm-store"[\s\S]*?\]\);/,
+  "Document Intelligence must skip the gitignored pnpm dependency cache");
 const capability = createDocumentIntelligence({ rootDir });
+
+async function verifyTraversalLinkPolicy() {
+  const fixtureRoot = await mkdtemp(path.join(os.tmpdir(), "rwang-document-intelligence-links-"));
+  const cachedRoot = path.join(fixtureRoot, "cached-root");
+  const unsafeRoot = path.join(fixtureRoot, "unsafe-root");
+  const outsideRoot = path.join(fixtureRoot, "outside-root");
+  await Promise.all([
+    mkdir(path.join(cachedRoot, ".pnpm-store"), { recursive: true }),
+    mkdir(unsafeRoot, { recursive: true }),
+    mkdir(outsideRoot, { recursive: true }),
+  ]);
+
+  try {
+    try {
+      await symlink(
+        path.join(outsideRoot, "missing-global-store-project"),
+        path.join(cachedRoot, ".pnpm-store", "dangling-project"),
+        "junction",
+      );
+      await symlink(outsideRoot, path.join(unsafeRoot, "outside-link"), "junction");
+    } catch (error) {
+      if (["EACCES", "EPERM", "ENOSYS", "UNKNOWN"].includes(error?.code)) {
+        console.log(`RWANG Document Intelligence link policy test skipped: ${error.code}`);
+        return;
+      }
+      throw error;
+    }
+
+    const cachedCapability = createDocumentIntelligence({ rootDir: cachedRoot });
+    try {
+      const cachedScan = await cachedCapability.scanAnnotations();
+      assert.equal(cachedScan.status, "passed", "dangling links inside .pnpm-store must be outside the scan boundary");
+    } finally {
+      await cachedCapability.close();
+    }
+
+    const unsafeCapability = createDocumentIntelligence({ rootDir: unsafeRoot });
+    try {
+      await assert.rejects(
+        unsafeCapability.scanAnnotations(),
+        (error) => error instanceof DocumentIntelligenceError && error.code === "UNSAFE_REPOSITORY_PATH",
+        "links outside the application root must remain fail-closed",
+      );
+    } finally {
+      await unsafeCapability.close();
+    }
+  } finally {
+    await rm(fixtureRoot, { recursive: true, force: true });
+  }
+}
 
 try {
   const snapshot = capability.snapshot({ local: true });
@@ -89,6 +142,8 @@ try {
   }
 
   if (process.platform === "win32") {
+    await verifyTraversalLinkPolicy();
+
     const scan = await capability.scanAnnotations();
     assert.equal(scan.operation, "scan-annotations");
     assert.equal(scan.readOnly, true);

@@ -26,6 +26,7 @@ const MAX_TRAVERSAL_ENTRIES = 100_000;
 const SCAN_SKIPPED_DIRECTORIES = new Set([
   ".git",
   ".next",
+  ".pnpm-store",
   ".venv",
   "__pycache__",
   "build",
