@@ -1,9 +1,9 @@
 ---
-version: "0.2.6b"
-doc_version: "0.2.6"
+version: "0.2.7b"
+doc_version: "0.2.7"
 doc_status: "approved"
 created_at: "2026-09-03T00:52:00+07:00,RWANG,d534d3f4299227162093c7dc02341da08144a98d"
-last_update: "2026-09-04T06:45:00+07:00,RWANG"
+last_update: "2026-09-04T06:51:00+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -52,6 +52,11 @@ fresh run `33818086204` ยัง timeout หลังเปลี่ยนเ�
 หักล้างข้อสรุปว่า root-resolution API เป็น root cause; marker ก่อนหน้าเว้นช่วง
 ครอบคลุม top-level initialization มากเกินไปและให้ localization ที่ไม่พอ
 
+granular trace ใน run `33818391621` ถึง `root-exists` แต่ไม่ถึง
+`enumeration-start`; ระหว่าง markers มีเพียงการเข้า `Get-SourceFiles`, สร้าง
+empty array, `New-Object Stack[string]` และ `Push` จึง localize จุดค้างที่
+cmdlet-based generic stack construction
+
 ## Evidence
 
 1. stage script ติดตั้ง production dependencies ใน temporary path
@@ -84,6 +89,8 @@ fresh run `33818086204` ยัง timeout หลังเปลี่ยนเ�
 12. run `33817809048` ส่ง sanitized diagnostics เพียง
     `rwang-scan-phase:script-start`; marker ถัดไปอยู่หลัง `Resolve-Path` จึงเป็น
     หลักฐานตรงว่าการค้างเกิดใน provider-based root resolution
+13. run `33818391621` ส่ง `main-entry`, `root-full-path-ready`, `root-exists`
+    ครบ แต่ไม่มี `enumeration-start` ซึ่งวางหลัง `New-Object`/`Push`
 
 ## Root Cause
 
@@ -117,6 +124,11 @@ working tree จึงไม่ใช่ canonical source digest
 ยังอยู่ใน PowerShell script หลัง process start แต่ก่อน completion ต้องใช้ markers
 ที่ชิด main entry, root resolution, enumeration subphases และ report serialization
 ก่อนระบุ final root cause
+
+remaining root cause ที่ localize แล้วคือ `New-Object` cmdlet path สำหรับสร้าง
+generic stack ภายใต้ minimal Windows PowerShell environment ของ hosted runner;
+command/module resolution ไม่คืน control ก่อน timeout ขณะที่ static .NET
+constructor ไม่ต้องผ่าน cmdlet resolution
 
 ## Why the Issue Escaped Detection
 
@@ -177,6 +189,9 @@ working tree จึงไม่ใช่ canonical source digest
     instrumentation หลังยืนยัน root cause โดยคง fixture เดิมเป็น regression gate
 15. คืน bounded trace ชั่วคราวโดยวาง markers ชิดทุก main/enumeration/report phase;
     แนบเฉพาะ phase labels ไม่มี path/content และถอดออกหลังยืนยัน root cause
+16. แทน `New-Object 'System.Collections.Generic.Stack[string]'` ด้วย static
+    `[System.Collections.Generic.Stack[string]]::new()` และคง trace จน fresh
+    hosted run ผ่าน phase นี้
 
 ## Verification Evidence
 
@@ -239,6 +254,8 @@ not identify binaries rebuilt from the current source):
   `Resolve-Path`; เป็นหลักฐาน root cause สำหรับ provider-based root resolution
 - fresh run `33818086204` ยังค้างหลังเลิกใช้ `Resolve-Path` จึงหักล้างข้อสรุป
   ก่อนหน้าและแสดงว่าต้องเพิ่ม trace granularity
+- fresh run `33818391621` localize timeout ให้อยู่ก่อน `enumeration-start`
+  หลัง `root-exists`, ตรงกับ cmdlet-based stack initialization
 
 ## Risk Assessment
 
@@ -269,6 +286,7 @@ runtime permission, approval gate, external action หรือ application data
 | RCA 0.2.3b | 0.2.4b beta | บันทึก hypothesis ที่ถูกหักล้างและเพิ่ม bounded phase diagnosis |
 | RCA 0.2.4b | 0.2.5b beta | ยืนยัน Resolve-Path root cause และเปลี่ยนเป็น .NET path resolution |
 | RCA 0.2.5b | 0.2.6b beta | ถอน root-resolution conclusion และเพิ่ม granular phase trace |
+| RCA 0.2.6b | 0.2.7b beta | localize New-Object hang และเปลี่ยนเป็น static .NET constructor |
 | Product 0.5.0 | Product 0.5.0 | hotfix ภายใน release pipeline; ไม่ bump public product version |
 
 ## CHANGELOG
@@ -284,3 +302,4 @@ runtime permission, approval gate, external action หรือ application data
 | 0.2.4b | 2026-09-04 | beta | หักล้าง provider hypothesis และกำหนด phase trace เพื่อยืนยัน remaining root cause | 062958d | RWANG |
 | 0.2.5b | 2026-09-04 | beta | phase trace ยืนยัน Resolve-Path ค้างก่อน enumeration และกำหนด provider-free root resolution | 619132a | RWANG |
 | 0.2.6b | 2026-09-04 | beta | run ใหม่หักล้าง Resolve-Path hypothesis และกำหนด granular bounded trace | b5250e5 | RWANG |
+| 0.2.7b | 2026-09-04 | beta | granular trace localize cmdlet stack construction และกำหนด static .NET constructor | 095afec | RWANG |

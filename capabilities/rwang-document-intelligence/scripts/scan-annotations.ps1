@@ -70,7 +70,9 @@ function Get-FilesByFilter {
     param([string]$RootPath, [string[]]$Filters)
 
     $files = @()
-    $pending = New-Object 'System.Collections.Generic.Stack[string]'
+    Write-ScanTrace "enumeration-function-entry"
+    $pending = [System.Collections.Generic.Stack[string]]::new()
+    Write-ScanTrace "stack-ready"
     $pending.Push($RootPath)
     Write-ScanTrace "enumeration-start"
 

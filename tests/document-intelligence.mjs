@@ -24,6 +24,10 @@ assert.doesNotMatch(scannerSource, /Get-ChildItem/i,
   "the scanner must not materialize PowerShell provider entries before pruning");
 assert.match(scannerSource, /Directory\]::EnumerateDirectories/,
   "the scanner must enumerate directory names before reading child attributes");
+assert.doesNotMatch(scannerSource, /New-Object\s+['"]System\.Collections\.Generic\.Stack/i,
+  "the scanner must not depend on cmdlet resolution to initialize traversal state");
+assert.match(scannerSource, /Stack\[string\]\]::new\(\)/,
+  "the scanner must construct traversal state through the static .NET path");
 assert.doesNotMatch(scannerSource, /Resolve-Path\s+\$Path/i,
   "the scanner must not resolve its root through the PowerShell provider");
 assert.match(scannerSource, /Path\]::GetFullPath\(\$Path\)/,
