@@ -14,5 +14,8 @@
   "normalization": [
     "line-endings-per-project-gitattributes",
     "trim-trailing-whitespace"
+  ],
+  "adaptations": [
+    "scripts/scan-annotations.ps1: bounded enumeration skips ignored directories and reparse points before recursion"
   ]
 }

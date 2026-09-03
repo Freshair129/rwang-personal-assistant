@@ -37,7 +37,7 @@ $ErrorActionPreference = "Stop"
 $Extensions = @("*.ts", "*.tsx", "*.js", "*.jsx", "*.py", "*.go", "*.java", "*.rs", "*.cs", "*.ps1")
 
 # Directories to skip
-$SkipDirs = @("node_modules", "__pycache__", ".venv", "venv", ".git", "dist", "build", ".next", "coverage")
+$SkipDirs = @("node_modules", ".pnpm-store", "__pycache__", ".venv", "venv", ".git", "dist", "build", ".next", "coverage")
 
 # Structured annotations are source comments, never prose/string literals.
 # Requirement/spec annotations carry registered requirement IDs; design can
@@ -64,42 +64,40 @@ function Get-FilesByFilter {
     param([string]$RootPath, [string[]]$Filters)
 
     $files = @()
-    foreach ($ext in $Filters) {
-        $found = Get-ChildItem -Path $RootPath -Filter $ext -Recurse -File -ErrorAction SilentlyContinue |
-            Where-Object {
-                $skip = $false
-                foreach ($dir in $SkipDirs) {
-                    if ($_.FullName -match [regex]::Escape($dir)) {
-                        $skip = $true
-                        break
-                    }
-                }
-                -not $skip
+    $pending = New-Object 'System.Collections.Generic.Stack[string]'
+    $pending.Push($RootPath)
+
+    while ($pending.Count -gt 0) {
+        $current = $pending.Pop()
+        try {
+            $currentInfo = Get-Item -LiteralPath $current -ErrorAction Stop
+            if (($currentInfo.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) { continue }
+            $entries = @(Get-ChildItem -LiteralPath $current -ErrorAction Stop)
+        }
+        catch {
+            continue
+        }
+
+        foreach ($entry in $entries) {
+            if (($entry.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) { continue }
+            if ($entry.PSIsContainer) {
+                if ($SkipDirs -notcontains $entry.Name) { $pending.Push($entry.FullName) }
+                continue
             }
-        $files += $found
+            foreach ($filter in $Filters) {
+                if ($entry.Name -like $filter) {
+                    $files += $entry
+                    break
+                }
+            }
+        }
     }
     return $files
 }
 
 function Get-SourceFiles {
     param([string]$RootPath)
-
-    $files = @()
-    foreach ($ext in $Extensions) {
-        $found = Get-ChildItem -Path $RootPath -Filter $ext -Recurse -File -ErrorAction SilentlyContinue |
-            Where-Object {
-                $skip = $false
-                foreach ($dir in $SkipDirs) {
-                    if ($_.FullName -match [regex]::Escape($dir)) {
-                        $skip = $true
-                        break
-                    }
-                }
-                -not $skip
-            }
-        $files += $found
-    }
-    return $files
+    return @(Get-FilesByFilter -RootPath $RootPath -Filters $Extensions)
 }
 
 function Scan-File {

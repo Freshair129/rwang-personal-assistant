@@ -132,6 +132,8 @@ Face Profile และ Voice Profile เป็นการเทียบ templa
 
 RWANG รวม [Freshair129/rwang-plugin](https://github.com/Freshair129/rwang-plugin) เป็นความสามารถหลักแบบ local-first โดย pin ที่ release `v1.3.0` และ commit `7354738094432fed22d6e00568315e1a1bd8fe15` สำเนาที่ใช้รันอยู่ใน `capabilities/rwang-document-intelligence/` จึงไม่ดึงหรือรันโค้ดจาก branch `main` อัตโนมัติ
 
+สำเนานี้มี local security adaptation ที่ประกาศใน `SOURCE.json`: annotation scanner จะตัด ignored directories และ reparse points ก่อน recursion เพื่อไม่เดินเข้า dependency-cache junction; ไฟล์ที่รันจริงยังถูกตรวจด้วย SHA-256 แบบ pin
+
 Core pack ประกอบด้วย `doc-architect`, `doc-preflight`, `doc-graph`, `exec-plan`, `implementation-plan`, `rwang-self-audit` และ `subagent-driven` หน้า Loadout แสดง source/version/commit และให้เครื่องหลักกด **RUN SELF AUDIT** เพื่อสแกน annotation และตรวจ graph แบบอ่านอย่างเดียว Agent สามารถอ่าน catalog/playbook และเรียก validator ที่กำหนดไว้ล่วงหน้าได้ แต่ไม่มี arbitrary shell tool
 
 - subprocess ใช้ PowerShell executable และ argument แบบตายตัวโดยไม่ผ่าน shell

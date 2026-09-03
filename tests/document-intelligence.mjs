@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { realpathSync } from "node:fs";
-import { appendFile, cp, mkdir, mkdtemp, readFile, rm, symlink } from "node:fs/promises";
+import { appendFile, cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,6 +14,14 @@ const rootDir = realpathSync(path.dirname(fileURLToPath(new URL("../package.json
 const adapterSource = await readFile(path.join(rootDir, "document-intelligence.mjs"), "utf8");
 assert.match(adapterSource, /SCAN_SKIPPED_DIRECTORIES[\s\S]*?"\.pnpm-store"[\s\S]*?\]\);/,
   "Document Intelligence must skip the gitignored pnpm dependency cache");
+const scannerSource = await readFile(
+  path.join(rootDir, "capabilities", "rwang-document-intelligence", "scripts", "scan-annotations.ps1"),
+  "utf8",
+);
+assert.doesNotMatch(scannerSource, /Get-ChildItem[^\r\n]*-Recurse/i,
+  "the scanner must prune ignored directories and reparse points before recursion");
+assert.match(scannerSource, /FileAttributes\]::ReparsePoint/,
+  "the scanner must reject reparse points before enqueueing directories");
 const capability = createDocumentIntelligence({ rootDir });
 
 async function verifyTraversalLinkPolicy() {
@@ -26,6 +34,7 @@ async function verifyTraversalLinkPolicy() {
     mkdir(unsafeRoot, { recursive: true }),
     mkdir(outsideRoot, { recursive: true }),
   ]);
+  await writeFile(path.join(cachedRoot, ".pnpm-store", "ignored.ps1"), "# @req FR-001\n", "utf8");
 
   try {
     try {
@@ -47,6 +56,7 @@ async function verifyTraversalLinkPolicy() {
     try {
       const cachedScan = await cachedCapability.scanAnnotations();
       assert.equal(cachedScan.status, "passed", "dangling links inside .pnpm-store must be outside the scan boundary");
+      assert.deepEqual(cachedScan.report.annotations, [], "regular files inside .pnpm-store must remain outside the scan boundary");
     } finally {
       await cachedCapability.close();
     }
@@ -82,6 +92,9 @@ try {
   assert.equal(snapshot.source.tag, "v1.3.0");
   assert.equal(snapshot.source.commit, "7354738094432fed22d6e00568315e1a1bd8fe15");
   assert.equal(snapshot.source.artifactSha256, "4225e902d65ebffe9e9af945376c9b6b459f7bccc4c67a04dc80a6ad01d13432");
+  assert.deepEqual(snapshot.source.adaptations, [
+    "scripts/scan-annotations.ps1: bounded enumeration skips ignored directories and reparse points before recursion",
+  ]);
   assert.equal(snapshot.skills.length, 7);
   assert.equal(new Set(snapshot.skills.map(({ id }) => id)).size, 7);
   assert.equal(snapshot.skills.every(({ core }) => core === true), true);

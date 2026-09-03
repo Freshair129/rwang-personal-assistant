@@ -1,9 +1,9 @@
 ---
-version: "0.2.0b"
-doc_version: "0.2.0"
+version: "0.2.1b"
+doc_version: "0.2.1"
 doc_status: "approved"
 created_at: "2026-09-03T00:52:00+07:00,RWANG,d534d3f4299227162093c7dc02341da08144a98d"
-last_update: "2026-09-04T06:02:32+07:00,RWANG"
+last_update: "2026-09-04T06:06:23+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -27,6 +27,11 @@ Document Intelligence scan ด้วย UNSAFE_REPOSITORY_PATH แม้ securit
 `Get-FileHash is not recognized` ทำให้ security, Rust และ Tauri build gates
 หลังจากนั้นไม่ได้รัน
 
+หลังแก้ shell/hash contract แล้ว fresh run `33815919894` ผ่าน staging แต่ล้ม
+ที่ Document Intelligence link-policy fixture: scan ของ root ที่มี dangling
+junction อยู่ใต้ `.pnpm-store` ใช้เวลาครบ 30 วินาทีและจบเป็น `timed-out`
+แทน `passed`
+
 ## Evidence
 
 1. stage script ติดตั้ง production dependencies ใน temporary path
@@ -43,6 +48,13 @@ Document Intelligence scan ด้วย UNSAFE_REPOSITORY_PATH แม้ securit
    ล้มระหว่างสร้าง runtime manifest เพราะ resolve `Get-FileHash` ไม่ได้
 7. การ import `Microsoft.PowerShell.Utility` ใน stage script ไม่ได้ป้องกัน
    command-resolution failure ที่พบจริงบน hosted runner
+8. job `100847928317` ของ run `33815919894` ผ่าน dependency install,
+   JavaScript check, Node acquisition และ staging แล้วล้มเฉพาะ
+   `Run post-stage security checks`; assertion ระบุ actual `timed-out`
+9. adapter preflight มี `.pnpm-store` ใน `SCAN_SKIPPED_DIRECTORIES` แต่ pinned
+   `scan-annotations.ps1` ใช้ `Get-ChildItem -Recurse` และไม่มี `.pnpm-store`
+   ใน `$SkipDirs`; file-level `Where-Object` ทำงานหลัง recursion เริ่มแล้ว จึง
+   ไม่สามารถตัด junction ก่อน traversal ได้
 
 ## Root Cause
 
@@ -56,6 +68,12 @@ CI failure มี root cause แยกที่การคำนวณ digest �
 cryptography primitive ที่ script ควบคุมเอง จึงให้ผลต่างจาก acquisition step
 ที่รันโดยตรงใน `pwsh`
 
+fresh link-policy failure มี root cause ที่ traversal contract มีสองชั้นแต่
+บังคับใช้ไม่เท่ากัน: JS preflight ตัด `.pnpm-store` ก่อนเดิน tree ขณะที่ pinned
+PowerShell scanner ใช้ recursive provider traversal ซึ่งเข้า dependency cache
+และ junction ก่อน post-filter จะเห็น entry นั้น จึงวน/รอ dangling target จน
+adapter timeout แม้ path ดังกล่าวควรอยู่นอก scan boundary
+
 ## Why the Issue Escaped Detection
 
 - security suite ถูกตรวจครั้งแรกก่อน staging
@@ -65,6 +83,9 @@ cryptography primitive ที่ script ควบคุมเอง จึงใ
   build-machine path ใน pnpm metadata หรือ post-stage security ordering
 - local validation ไม่ได้จำลอง shell chain ของ hosted runner และ static test
   กลับยืนยันว่ามี `Get-FileHash` แทนที่จะป้องกัน dependency ดังกล่าว
+- local Windows session สร้าง junction fixture ไม่ได้และข้าม test ด้วย
+  `EPERM`; hosted runner สร้าง fixture ได้ จึงเป็น environment แรกที่ execute
+  regression path จริง
 
 ## Implemented Solution
 
@@ -89,6 +110,10 @@ cryptography primitive ที่ script ควบคุมเอง จึงใ
    ก่อน/หลัง copy และตรวจข้อความใน `SHA256SUMS.txt` แบบ exact equality
 9. นำ synthetic supply-chain document ออกจาก artifact จนกว่าจะมี generator
    ที่อนุมัติ และเพิ่ม contract ป้องกัน `.env` / `.env.*` ใน staged tree/manifest
+10. เปลี่ยน annotation scanner จาก provider-level `-Recurse` เป็น bounded
+    directory enumeration ที่ตัด exact ignored-directory names และทุก reparse
+    point ก่อน enqueue; บันทึก local security adaptation ใน source provenance
+    และ pin digest ใหม่
 
 ## Verification Evidence
 
@@ -133,12 +158,14 @@ not identify binaries rebuilt from the current source):
   secret file ใน staged source หรือ manifest
 - current local source ผ่าน `tauri build --no-bundle` และสร้าง
   `RWANG_0.5.0_x64-setup.exe`; raw SHA-256 คือ
-  `0d2ef2529b353bfe7fc62fb86fbc7e764124e6d2fb897cb998d21bb064a48187`
+  `4e0f311c8e6cef42ffa142fc4a1c077b31c4052df0950bb4b154236c86605890`
   และ installer SHA-256 คือ
-  `be46bf3ae0433128ef92f75746e666c6c59b3298136a40a2de4564041392dc74`;
+  `13aadb63faaadea1136e0d6d2aaa99322fbc5b87cf32822549aed74121ec2f0d`;
   ทั้งคู่ `NotSigned` และยังไม่ถูกนับเป็น clean-machine smoke evidence
 - fresh GitHub Actions rerun ยังเป็น exit criterion; local pass ไม่ถูกนับเป็น
   clean-machine Windows 10/11 installer evidence
+- fresh run `33815919894` ให้หลักฐาน regression เพิ่มเติม: staging ผ่าน แต่
+  link-policy fixture timeout ตาม root cause ข้างต้น; run นี้ยังไม่ใช่ pass
 
 ## Risk Assessment
 
@@ -163,6 +190,7 @@ runtime permission, approval gate, external action หรือ application data
 |---|---|---|
 | RCA none | 0.1.0b candidate | บันทึก post-stage security ordering root cause และ patch contract |
 | RCA 0.1.0b | 0.2.0b beta | เพิ่ม nested-shell CI root cause, checksum และ release evidence contract |
+| RCA 0.2.0b | 0.2.1b beta | บันทึก hosted-runner traversal timeout และ bounded-scanner remediation |
 | Product 0.5.0 | Product 0.5.0 | hotfix ภายใน release pipeline; ไม่ bump public product version |
 
 ## CHANGELOG
@@ -172,3 +200,4 @@ runtime permission, approval gate, external action หรือ application data
 | 0.1.0b | 2026-09-03 | candidate | เสนอปิด dangling pnpm project link และ build-path metadata leak | 3a6657c | RWANG |
 | 0.1.0b | 2026-09-03 | beta | ใช้ hotfix และผ่าน post-stage security, package, Rust, build และ artifact smoke gates | 3a6657c | RWANG |
 | 0.2.0b | 2026-09-04 | beta | ใช้ shell-independent hashing และทำ CI/checksum/secret/VM contracts ให้ตรงหลักฐาน | ba1200d | RWANG |
+| 0.2.1b | 2026-09-04 | beta | ยืนยัน recursive scanner เดินเข้า ignored junction ก่อน post-filter และกำหนด bounded enumeration | a176e6f | RWANG |
