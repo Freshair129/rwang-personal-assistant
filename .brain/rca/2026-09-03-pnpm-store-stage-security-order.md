@@ -1,9 +1,9 @@
 ---
-version: "0.2.3b"
-doc_version: "0.2.3"
+version: "0.2.4b"
+doc_version: "0.2.4"
 doc_status: "approved"
 created_at: "2026-09-03T00:52:00+07:00,RWANG,d534d3f4299227162093c7dc02341da08144a98d"
-last_update: "2026-09-04T06:25:00+07:00,RWANG"
+last_update: "2026-09-04T06:32:00+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -39,6 +39,10 @@ junction อยู่ใต้ `.pnpm-store` ใช้เวลาครบ 30 �
 หลัง canonical-EOL patch แล้ว fresh run `33817028416` ผ่าน integrity check แต่
 link-policy fixture ยัง timeout แสดงว่าเอา `-Recurse` ออกอย่างเดียวยังไม่ตัด
 PowerShell provider ออกจาก junction path
+
+หลัง name-first .NET enumeration แล้ว fresh run `33817561483` ยัง timeout ที่
+fixture เดิม จึงหักล้างสมมติฐานว่า provider materialization เป็น root cause
+สุดท้าย; ต้องแยก process launch กับ script phases ก่อนเปลี่ยน behavior เพิ่ม
 
 ## Evidence
 
@@ -93,10 +97,10 @@ representation ของ checkout ทั้งที่ source-control contract 
 materialize PowerShell text ต่างกันตาม declared EOL; การคำนวณค่าจาก transient
 working tree จึงไม่ใช่ canonical source digest
 
-remaining traversal failure มี root cause ที่ pruning ยังอยู่หลัง PowerShell
-provider enumeration: `Get-ChildItem` ต้องสร้าง child provider objects ก่อน
-loop จะตัด `.pnpm-store`; บน hosted runner ขั้น materialization นี้แตะ state
-ของ directory ที่มี dangling junction และไม่คืน control ภายใน timeout
+สมมติฐาน provider enumeration ถูกหักล้างโดย run `33817561483`: scanner ไม่มี
+`Get-ChildItem` แล้วแต่ยัง timeout ค่าเดิม หลักฐานปัจจุบันจำกัด remaining cause
+ไว้ที่ process launch หรือ phase ภายใน fixed PowerShell action; ยังห้ามสรุปจุด
+ใดจุดหนึ่งจนมี bounded phase trace
 
 ## Why the Issue Escaped Detection
 
@@ -149,6 +153,9 @@ loop จะตัด `.pnpm-store`; บน hosted runner ขั้น materializ
 12. ใช้ `[System.IO.Directory]::EnumerateDirectories/EnumerateFiles` แทน
     PowerShell provider enumeration; ตรวจ exact skipped basename ก่อนเรียก
     `File.GetAttributes` และก่อน enqueue จากนั้นค่อยตัด reparse point
+13. เพิ่ม test-only bounded phase trace โดยไม่ส่ง path/content และแนบ sanitized
+    diagnostics เฉพาะ assertion failure เพื่อแยก launch/start/enumeration/report;
+    trace นี้เป็น diagnostic step ไม่ใช่การอ้างว่า root cause ถูกแก้แล้ว
 
 ## Verification Evidence
 
@@ -205,6 +212,8 @@ not identify binaries rebuilt from the current source):
   non-canonical EOL digest; run นี้ยังไม่ใช่ pass
 - fresh run `33817028416` ผ่าน canonical digest แต่ timeout ที่ fixture เดิม
   ยืนยันว่า provider enumeration ยังอยู่ก่อน pruning; run นี้ยังไม่ใช่ pass
+- fresh run `33817561483` ยัง timeout หลังตัด PowerShell provider ทั้งหมด จึง
+  หักล้าง provider-root-cause hypothesis และบังคับให้เก็บ phase evidence
 
 ## Risk Assessment
 
@@ -232,6 +241,7 @@ runtime permission, approval gate, external action หรือ application data
 | RCA 0.2.0b | 0.2.1b beta | บันทึก hosted-runner traversal timeout และ bounded-scanner remediation |
 | RCA 0.2.1b | 0.2.2b beta | บันทึก checkout EOL digest mismatch และ canonical hash contract |
 | RCA 0.2.2b | 0.2.3b beta | ย้าย skipped-name pruning ให้อยู่ก่อน provider/attribute access |
+| RCA 0.2.3b | 0.2.4b beta | บันทึก hypothesis ที่ถูกหักล้างและเพิ่ม bounded phase diagnosis |
 | Product 0.5.0 | Product 0.5.0 | hotfix ภายใน release pipeline; ไม่ bump public product version |
 
 ## CHANGELOG
@@ -244,3 +254,4 @@ runtime permission, approval gate, external action หรือ application data
 | 0.2.1b | 2026-09-04 | beta | ยืนยัน recursive scanner เดินเข้า ignored junction ก่อน post-filter และกำหนด bounded enumeration | a176e6f | RWANG |
 | 0.2.2b | 2026-09-04 | beta | ยืนยัน transient-EOL digest drift และกำหนด LF-canonical PowerShell integrity hash | fe93e5f | RWANG |
 | 0.2.3b | 2026-09-04 | beta | ยืนยัน provider enumeration ยังแตะ skipped junction และกำหนด name-first .NET traversal | fd0c971 | RWANG |
+| 0.2.4b | 2026-09-04 | beta | หักล้าง provider hypothesis และกำหนด phase trace เพื่อยืนยัน remaining root cause | 062958d | RWANG |

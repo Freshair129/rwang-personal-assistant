@@ -28,10 +28,18 @@
 param(
     [string]$Path = ".",
     [string]$Format = "json",
-    [bool]$IncludeUnstructured = $true
+    [bool]$IncludeUnstructured = $true,
+    [switch]$TracePhases
 )
 
 $ErrorActionPreference = "Stop"
+
+function Write-ScanTrace {
+    param([string]$Phase)
+    if ($TracePhases) { [Console]::Error.WriteLine("rwang-scan-phase:$Phase") }
+}
+
+Write-ScanTrace "script-start"
 
 # File extensions to scan
 $Extensions = @("*.ts", "*.tsx", "*.js", "*.jsx", "*.py", "*.go", "*.java", "*.rs", "*.cs", "*.ps1")
@@ -66,6 +74,7 @@ function Get-FilesByFilter {
     $files = @()
     $pending = New-Object 'System.Collections.Generic.Stack[string]'
     $pending.Push($RootPath)
+    Write-ScanTrace "enumeration-start"
 
     while ($pending.Count -gt 0) {
         $current = $pending.Pop()
@@ -73,7 +82,9 @@ function Get-FilesByFilter {
             $currentAttributes = [System.IO.File]::GetAttributes($current)
             if (($currentAttributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) { continue }
             $filePaths = @([System.IO.Directory]::EnumerateFiles($current))
+            Write-ScanTrace "files-enumerated"
             $directoryPaths = @([System.IO.Directory]::EnumerateDirectories($current))
+            Write-ScanTrace "directories-enumerated"
         }
         catch {
             continue
@@ -102,6 +113,7 @@ function Get-FilesByFilter {
             }
         }
     }
+    Write-ScanTrace "enumeration-complete"
     return $files
 }
 
@@ -337,10 +349,12 @@ function Scan-TestSpecFile {
 
 # Main execution
 $resolvedPath = (Resolve-Path $Path).Path
+Write-ScanTrace "path-resolved"
 $files = Get-SourceFiles -RootPath $resolvedPath
 $mermaidFiles = Get-FilesByFilter -RootPath $resolvedPath -Filters @("*.mmd")
 $testSpecFiles = Get-FilesByFilter -RootPath $resolvedPath -Filters @("*.test.md")
 $docMdFiles = Get-FilesByFilter -RootPath $resolvedPath -Filters @("*.md") | Where-Object { $_.Name -notlike "*.test.md" }
+Write-ScanTrace "file-sets-ready"
 
 $allAnnotations = @()
 $fileCount = 0
@@ -404,6 +418,7 @@ $report = @{
 }
 
 if ($Format -eq "json") {
+    Write-ScanTrace "report-ready"
     $report | ConvertTo-Json -Depth 10
 } else {
     Write-Host "`n=== RWANG Annotation Scan Report ===" -ForegroundColor Cyan

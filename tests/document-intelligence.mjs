@@ -58,8 +58,12 @@ async function verifyTraversalLinkPolicy() {
 
     const cachedCapability = createDocumentIntelligence({ rootDir: cachedRoot });
     try {
-      const cachedScan = await cachedCapability.scanAnnotations();
-      assert.equal(cachedScan.status, "passed", "dangling links inside .pnpm-store must be outside the scan boundary");
+      const cachedScan = await cachedCapability.scanAnnotations({ tracePhases: true });
+      assert.equal(
+        cachedScan.status,
+        "passed",
+        `dangling links inside .pnpm-store must be outside the scan boundary: ${JSON.stringify(cachedScan)}`,
+      );
       assert.deepEqual(cachedScan.report.annotations, [], "regular files inside .pnpm-store must remain outside the scan boundary");
     } finally {
       await cachedCapability.close();
