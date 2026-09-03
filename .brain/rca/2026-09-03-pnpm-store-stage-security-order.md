@@ -1,9 +1,9 @@
 ---
-version: "0.2.4b"
-doc_version: "0.2.4"
+version: "0.2.5b"
+doc_version: "0.2.5"
 doc_status: "approved"
 created_at: "2026-09-03T00:52:00+07:00,RWANG,d534d3f4299227162093c7dc02341da08144a98d"
-last_update: "2026-09-04T06:32:00+07:00,RWANG"
+last_update: "2026-09-04T06:38:00+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -44,6 +44,10 @@ PowerShell provider ออกจาก junction path
 fixture เดิม จึงหักล้างสมมติฐานว่า provider materialization เป็น root cause
 สุดท้าย; ต้องแยก process launch กับ script phases ก่อนเปลี่ยน behavior เพิ่ม
 
+bounded trace ใน fresh run `33817809048` บันทึก `script-start` แต่ไม่มี
+`path-resolved` ก่อน timeout 30,024 ms จึงระบุจุดค้างได้ว่าเป็น
+`Resolve-Path $Path` ก่อน scanner enumeration เริ่ม
+
 ## Evidence
 
 1. stage script ติดตั้ง production dependencies ใน temporary path
@@ -73,6 +77,9 @@ fixture เดิม จึงหักล้างสมมติฐานว�
 11. run `33817028416` ใช้ canonical digest แล้วเริ่ม scan ได้ แต่ใช้เวลาครบ
     30 วินาทีที่ fixture เดิม; bounded implementation ยังเรียก
     `Get-ChildItem` เพื่อ materialize entries ก่อน `$SkipDirs` ตรวจชื่อ child
+12. run `33817809048` ส่ง sanitized diagnostics เพียง
+    `rwang-scan-phase:script-start`; marker ถัดไปอยู่หลัง `Resolve-Path` จึงเป็น
+    หลักฐานตรงว่าการค้างเกิดใน provider-based root resolution
 
 ## Root Cause
 
@@ -101,6 +108,11 @@ working tree จึงไม่ใช่ canonical source digest
 `Get-ChildItem` แล้วแต่ยัง timeout ค่าเดิม หลักฐานปัจจุบันจำกัด remaining cause
 ไว้ที่ process launch หรือ phase ภายใน fixed PowerShell action; ยังห้ามสรุปจุด
 ใดจุดหนึ่งจนมี bounded phase trace
+
+remaining root cause ที่ยืนยันแล้วคือ `Resolve-Path` ใช้ PowerShell provider
+เพื่อ resolve scan root และไม่คืน control เมื่อ hosted-runner root มี ignored
+directory ซึ่งบรรจุ dangling junction แม้ตัว scanner จะยังไม่ได้ enumerate
+root; ดังนั้น skip policy ที่อยู่หลัง `Resolve-Path` ไม่มีโอกาสทำงาน
 
 ## Why the Issue Escaped Detection
 
@@ -156,6 +168,9 @@ working tree จึงไม่ใช่ canonical source digest
 13. เพิ่ม test-only bounded phase trace โดยไม่ส่ง path/content และแนบ sanitized
     diagnostics เฉพาะ assertion failure เพื่อแยก launch/start/enumeration/report;
     trace นี้เป็น diagnostic step ไม่ใช่การอ้างว่า root cause ถูกแก้แล้ว
+14. แทน `Resolve-Path` ด้วย `[System.IO.Path]::GetFullPath` และ
+    `[System.IO.Directory]::Exists` ซึ่งไม่เข้า PowerShell provider; ถอด phase
+    instrumentation หลังยืนยัน root cause โดยคง fixture เดิมเป็น regression gate
 
 ## Verification Evidence
 
@@ -214,6 +229,8 @@ not identify binaries rebuilt from the current source):
   ยืนยันว่า provider enumeration ยังอยู่ก่อน pruning; run นี้ยังไม่ใช่ pass
 - fresh run `33817561483` ยัง timeout หลังตัด PowerShell provider ทั้งหมด จึง
   หักล้าง provider-root-cause hypothesis และบังคับให้เก็บ phase evidence
+- fresh run `33817809048` ระบุ phase สุดท้ายเป็น `script-start` ก่อน
+  `Resolve-Path`; เป็นหลักฐาน root cause สำหรับ provider-based root resolution
 
 ## Risk Assessment
 
@@ -242,6 +259,7 @@ runtime permission, approval gate, external action หรือ application data
 | RCA 0.2.1b | 0.2.2b beta | บันทึก checkout EOL digest mismatch และ canonical hash contract |
 | RCA 0.2.2b | 0.2.3b beta | ย้าย skipped-name pruning ให้อยู่ก่อน provider/attribute access |
 | RCA 0.2.3b | 0.2.4b beta | บันทึก hypothesis ที่ถูกหักล้างและเพิ่ม bounded phase diagnosis |
+| RCA 0.2.4b | 0.2.5b beta | ยืนยัน Resolve-Path root cause และเปลี่ยนเป็น .NET path resolution |
 | Product 0.5.0 | Product 0.5.0 | hotfix ภายใน release pipeline; ไม่ bump public product version |
 
 ## CHANGELOG
@@ -255,3 +273,4 @@ runtime permission, approval gate, external action หรือ application data
 | 0.2.2b | 2026-09-04 | beta | ยืนยัน transient-EOL digest drift และกำหนด LF-canonical PowerShell integrity hash | fe93e5f | RWANG |
 | 0.2.3b | 2026-09-04 | beta | ยืนยัน provider enumeration ยังแตะ skipped junction และกำหนด name-first .NET traversal | fd0c971 | RWANG |
 | 0.2.4b | 2026-09-04 | beta | หักล้าง provider hypothesis และกำหนด phase trace เพื่อยืนยัน remaining root cause | 062958d | RWANG |
+| 0.2.5b | 2026-09-04 | beta | phase trace ยืนยัน Resolve-Path ค้างก่อน enumeration และกำหนด provider-free root resolution | 619132a | RWANG |

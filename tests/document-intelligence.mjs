@@ -24,6 +24,10 @@ assert.doesNotMatch(scannerSource, /Get-ChildItem/i,
   "the scanner must not materialize PowerShell provider entries before pruning");
 assert.match(scannerSource, /Directory\]::EnumerateDirectories/,
   "the scanner must enumerate directory names before reading child attributes");
+assert.doesNotMatch(scannerSource, /Resolve-Path\s+\$Path/i,
+  "the scanner must not resolve its root through the PowerShell provider");
+assert.match(scannerSource, /Path\]::GetFullPath\(\$Path\)/,
+  "the scanner must resolve its root without provider traversal");
 assert.match(scannerSource, /FileAttributes\]::ReparsePoint/,
   "the scanner must reject reparse points before enqueueing directories");
 const capability = createDocumentIntelligence({ rootDir });
@@ -58,7 +62,7 @@ async function verifyTraversalLinkPolicy() {
 
     const cachedCapability = createDocumentIntelligence({ rootDir: cachedRoot });
     try {
-      const cachedScan = await cachedCapability.scanAnnotations({ tracePhases: true });
+      const cachedScan = await cachedCapability.scanAnnotations();
       assert.equal(
         cachedScan.status,
         "passed",
