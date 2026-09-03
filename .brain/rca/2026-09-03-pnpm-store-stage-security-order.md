@@ -1,9 +1,9 @@
 ---
-version: "0.2.5b"
-doc_version: "0.2.5"
+version: "0.2.6b"
+doc_version: "0.2.6"
 doc_status: "approved"
 created_at: "2026-09-03T00:52:00+07:00,RWANG,d534d3f4299227162093c7dc02341da08144a98d"
-last_update: "2026-09-04T06:38:00+07:00,RWANG"
+last_update: "2026-09-04T06:45:00+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -47,6 +47,10 @@ fixture เดิม จึงหักล้างสมมติฐานว�
 bounded trace ใน fresh run `33817809048` บันทึก `script-start` แต่ไม่มี
 `path-resolved` ก่อน timeout 30,024 ms จึงระบุจุดค้างได้ว่าเป็น
 `Resolve-Path $Path` ก่อน scanner enumeration เริ่ม
+
+fresh run `33818086204` ยัง timeout หลังเปลี่ยนเป็น `Path.GetFullPath` จึง
+หักล้างข้อสรุปว่า root-resolution API เป็น root cause; marker ก่อนหน้าเว้นช่วง
+ครอบคลุม top-level initialization มากเกินไปและให้ localization ที่ไม่พอ
 
 ## Evidence
 
@@ -109,10 +113,10 @@ working tree จึงไม่ใช่ canonical source digest
 ไว้ที่ process launch หรือ phase ภายใน fixed PowerShell action; ยังห้ามสรุปจุด
 ใดจุดหนึ่งจนมี bounded phase trace
 
-remaining root cause ที่ยืนยันแล้วคือ `Resolve-Path` ใช้ PowerShell provider
-เพื่อ resolve scan root และไม่คืน control เมื่อ hosted-runner root มี ignored
-directory ซึ่งบรรจุ dangling junction แม้ตัว scanner จะยังไม่ได้ enumerate
-root; ดังนั้น skip policy ที่อยู่หลัง `Resolve-Path` ไม่มีโอกาสทำงาน
+สมมติฐาน `Resolve-Path` ถูกหักล้างโดย run `33818086204`; remaining root cause
+ยังอยู่ใน PowerShell script หลัง process start แต่ก่อน completion ต้องใช้ markers
+ที่ชิด main entry, root resolution, enumeration subphases และ report serialization
+ก่อนระบุ final root cause
 
 ## Why the Issue Escaped Detection
 
@@ -171,6 +175,8 @@ root; ดังนั้น skip policy ที่อยู่หลัง `Resol
 14. แทน `Resolve-Path` ด้วย `[System.IO.Path]::GetFullPath` และ
     `[System.IO.Directory]::Exists` ซึ่งไม่เข้า PowerShell provider; ถอด phase
     instrumentation หลังยืนยัน root cause โดยคง fixture เดิมเป็น regression gate
+15. คืน bounded trace ชั่วคราวโดยวาง markers ชิดทุก main/enumeration/report phase;
+    แนบเฉพาะ phase labels ไม่มี path/content และถอดออกหลังยืนยัน root cause
 
 ## Verification Evidence
 
@@ -231,6 +237,8 @@ not identify binaries rebuilt from the current source):
   หักล้าง provider-root-cause hypothesis และบังคับให้เก็บ phase evidence
 - fresh run `33817809048` ระบุ phase สุดท้ายเป็น `script-start` ก่อน
   `Resolve-Path`; เป็นหลักฐาน root cause สำหรับ provider-based root resolution
+- fresh run `33818086204` ยังค้างหลังเลิกใช้ `Resolve-Path` จึงหักล้างข้อสรุป
+  ก่อนหน้าและแสดงว่าต้องเพิ่ม trace granularity
 
 ## Risk Assessment
 
@@ -260,6 +268,7 @@ runtime permission, approval gate, external action หรือ application data
 | RCA 0.2.2b | 0.2.3b beta | ย้าย skipped-name pruning ให้อยู่ก่อน provider/attribute access |
 | RCA 0.2.3b | 0.2.4b beta | บันทึก hypothesis ที่ถูกหักล้างและเพิ่ม bounded phase diagnosis |
 | RCA 0.2.4b | 0.2.5b beta | ยืนยัน Resolve-Path root cause และเปลี่ยนเป็น .NET path resolution |
+| RCA 0.2.5b | 0.2.6b beta | ถอน root-resolution conclusion และเพิ่ม granular phase trace |
 | Product 0.5.0 | Product 0.5.0 | hotfix ภายใน release pipeline; ไม่ bump public product version |
 
 ## CHANGELOG
@@ -274,3 +283,4 @@ runtime permission, approval gate, external action หรือ application data
 | 0.2.3b | 2026-09-04 | beta | ยืนยัน provider enumeration ยังแตะ skipped junction และกำหนด name-first .NET traversal | fd0c971 | RWANG |
 | 0.2.4b | 2026-09-04 | beta | หักล้าง provider hypothesis และกำหนด phase trace เพื่อยืนยัน remaining root cause | 062958d | RWANG |
 | 0.2.5b | 2026-09-04 | beta | phase trace ยืนยัน Resolve-Path ค้างก่อน enumeration และกำหนด provider-free root resolution | 619132a | RWANG |
+| 0.2.6b | 2026-09-04 | beta | run ใหม่หักล้าง Resolve-Path hypothesis และกำหนด granular bounded trace | b5250e5 | RWANG |

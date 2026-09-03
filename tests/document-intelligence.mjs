@@ -62,7 +62,7 @@ async function verifyTraversalLinkPolicy() {
 
     const cachedCapability = createDocumentIntelligence({ rootDir: cachedRoot });
     try {
-      const cachedScan = await cachedCapability.scanAnnotations();
+      const cachedScan = await cachedCapability.scanAnnotations({ tracePhases: true });
       assert.equal(
         cachedScan.status,
         "passed",

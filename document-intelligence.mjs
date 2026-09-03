@@ -54,7 +54,7 @@ const RUNTIME_FILE_SHA256 = Object.freeze({
   "SOURCE.json": "3d36f4d0ec50aabaab003e36c136fb816a31bf94a6b9d1101f43784330549506",
   ".codex-plugin/plugin.json": "5785bb48f9be98902e281f1c3ccf7f8dd3d7a030eac926659358f4fa24a21f45",
   "references/execution-modes/zuri-v2.catalog.json": "96f0719b93a9f7addbbc101b0e14f4025cf03788b54387b454f29a60d3675273",
-  "scripts/scan-annotations.ps1": "b0561fab0c5a74826949413626003e8194ee31ae46e87dda59f6b2cd3666f84a",
+  "scripts/scan-annotations.ps1": "0c4991f11d460a8bf3473fc9481c2e1252cc138dafcc9fec0cb3adfda4c06027",
   "scripts/validate-graph.ps1": "4ca070f89d45bf74518670db366e97c0f6ef952350de648e6debd841b4d36efc",
   "scripts/validate-plan.ps1": "c303935b9aa000e9a8dcbf7e5bc6d91c46af2b9417e76124ebd7438845e9ecd4",
   "skills/doc-architect/SKILL.md": "432a04564efc87fc421e110589b33b83a4e762bd5524c173deb389070f452ec0",
@@ -780,9 +780,12 @@ export function createDocumentIntelligence({ rootDir = MODULE_ROOT, capabilityDi
     return operationResult(operation, result, [applicationRoot, capabilityRoot]);
   }
 
-  async function scanAnnotations() {
+  async function scanAnnotations({ tracePhases = false } = {}) {
     assertContainedTraversal(applicationRoot, applicationRoot, { skipDirectories: SCAN_SKIPPED_DIRECTORIES });
-    return runFixedAction("scan-annotations", ["-File", scripts.scan, "-Path", applicationRoot, "-Format", "json"]);
+    return runFixedAction("scan-annotations", [
+      "-File", scripts.scan, "-Path", applicationRoot, "-Format", "json",
+      ...(tracePhases ? ["-TracePhases"] : []),
+    ]);
   }
 
   async function validateGraph() {
