@@ -1,9 +1,9 @@
 ---
-version: "0.1.0b"
-doc_version: "0.1.0"
+version: "0.1.1b"
+doc_version: "0.1.1"
 doc_status: "approved"
 created_at: "2026-09-03T21:01:52+07:00,RWANG,3a6657caf0519f54b8bee05658f3047856e64b65"
-last_update: "2026-09-04T06:02:32+07:00,RWANG"
+last_update: "2026-09-04T06:57:00+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -14,7 +14,7 @@ attributes:
   language: "th-TH"
   change_risk: "HIGH"
   baseline_commit: "3a6657caf0519f54b8bee05658f3047856e64b65"
-  implementation_commit: "ba1200d8868eaf9ee74349fbec6f1f6bd07eb744"
+  implementation_commit: "a82635f23c66e3236bdc3b4a0cc1c92f2cb703e2"
 ---
 
 # RCA and Remediation Specification — Documentation/Code Alignment
@@ -54,6 +54,10 @@ attributes:
 Rust และ build gates ขณะเดียวกันเอกสารบางส่วนอธิบาย command, architecture,
 data path, release artifact และ persona behavior ไม่ตรงกับ implementation จริง
 ทำให้ผล “tests passed” และข้อความ “same gates” ให้ความเชื่อมั่นเกินหลักฐาน
+
+หลัง Document Intelligence ผ่าน hosted Windows gate แล้ว run `33818622277`
+ล้มที่ Spotlight launcher assertion เพราะ expected path เป็น Windows 8.3 alias
+`RUNNER~1` แต่ implementation คืน canonical long path `runneradmin`
 
 ## 4. Evidence
 
@@ -111,6 +115,9 @@ data path, release artifact และ persona behavior ไม่ตรงกั�
    shipped แล้ว
 10. clean checkout อาจสร้าง PNG fallback ขนาด 1x1 ใน `build.rs`; production
     release จึงไม่ fail closed เมื่อ branded icon input หาย
+11. Windows run `33818622277` ผ่าน Document Intelligence suite แล้วล้มที่
+    `tests/spotlight-security.mjs:160`; actual/expected ต่างเฉพาะ canonical long
+    path กับ 8.3 short-path alias ของไฟล์เดียวกัน
 
 ### 4.4 Documentation governance
 
@@ -134,6 +141,9 @@ Rust host, Node sidecar, UI และ release workflow:
    evidence ทำให้เอกสารประกาศความพร้อมเกินผลทดสอบ
 4. persona requirements ถูกเขียนหลัง implementation บางส่วน แต่ coverage test
    ไม่บังคับ traceability ของทุก requirement
+5. Spotlight fixture เปรียบ raw `mkdtemp` path กับ canonical path ที่ index เก็บ
+   หลัง `realpath`; hosted Windows คืน TEMP เป็น 8.3 alias จึงเกิด false
+   negative โดยไม่กระทบ containment, file identity หรือ launcher boundary
 
 ## 6. Why the issue escaped detection
 
@@ -143,6 +153,8 @@ Rust host, Node sidecar, UI และ release workflow:
 - scenario catalog ตรวจ prompt presence ไม่ได้ตรวจ policy-to-expected mapping
 - docs review ไม่มี versioned cross-reference matrix และ release-claim gate
 - placeholder artifact ถูกติดป้ายตรงไปตรงมา แต่ไม่มี release-scope prohibition test
+- local TEMP ใช้ long path อยู่แล้ว จึงไม่ execute short/long alias case ที่
+  hosted runner เปิดเผย
 
 ## 7. Normative remediation decisions (implemented)
 
@@ -214,6 +226,9 @@ tauri build
   ตรวจ gate ใน `main.rs` จริง
 - docs ระบุ `Ctrl+Shift+Space` เป็น implemented global shortcut และ
   `Ctrl/Cmd+K` เป็น browser shortcut; registration conflict เป็น non-fatal warning
+- launcher test canonicalize expected fixture path ด้วย `realpath` ก่อนเทียบกับ
+  canonical path ที่ส่งเข้า fixed launcher; ยังใช้ strict equality เพื่อไม่ยอม
+  คนละไฟล์ที่เพียงมี string คล้ายกัน
 
 ### D6 — Explicit workspace and configuration ownership
 
@@ -365,9 +380,9 @@ code signing ต้องมีหลักฐานแยกก่อนเล�
 
 | Artifact | From | To after implementation | Change |
 |---|---|---|---|
-| Alignment RCA/spec | none | `0.1.0b` beta | อนุมัติ RCA, decisions, DAG และ local gates; fresh CI ยังเป็น exit gate |
+| Alignment RCA/spec | none | `0.1.1b` beta | เพิ่ม Windows short/long path alias RCA ใน Spotlight fixture |
 | Persona PRD | `0.2.1b` beta | `0.2.2b` beta | prompt/test traceability, readable disclosure, commit evidence |
-| pnpm staging RCA | `0.1.0b` beta | `0.2.0b` beta | `.bin`, nested-shell/hash-host, checksum และ release evidence |
+| pnpm staging RCA | `0.1.0b` beta | `0.2.7b` beta | `.bin`, shell/hash, scanner traversal และ hosted phase evidence |
 | Desktop DAG | unversioned | `0.1.0b` beta | truthful wave/manual status, paths and rollback |
 | Package staging doc | unversioned | `0.1.0b` beta | exact pnpm/hash/staging contract |
 | Desktop release doc | unversioned | `0.1.0b` beta | order, checksum, placeholder-free artifacts |
@@ -383,3 +398,4 @@ code signing ต้องมีหลักฐานแยกก่อนเล�
 |---|---|---|---|---|---|
 | 0.1.0b | 2026-09-03 | candidate | เสนอ cross-layer remediation สำหรับ CI, release, persona, Spotlight, lifecycle และ docs | ba1200d | RWANG |
 | 0.1.0b | 2026-09-04 | beta | Boss อนุมัติสเปกและ implementation ผ่าน local automated gates; รอ fresh PR CI/manual evidence ตามขอบเขต | ba1200d | RWANG |
+| 0.1.1b | 2026-09-04 | beta | Windows CI ผ่าน scanner gateและพบ Spotlight short/long path alias; กำหนด canonical expected identity | a82635f | RWANG |

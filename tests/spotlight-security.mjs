@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   mkdir,
   mkdtemp,
+  realpath,
   rm,
   symlink,
   writeFile,
@@ -94,6 +95,11 @@ async function spotlightBoundaryTest() {
       writeFixture(path.join(documentsDir, "node_modules", "dependency-secret.txt"), "ignored"),
       writeFixture(path.join(documentsDir, "desktop.ini"), "ignored"),
     ]);
+    const [canonicalReportPath, canonicalInjectionPath, canonicalBlockedPath] = await Promise.all([
+      realpath(reportPath),
+      realpath(injectionPath),
+      realpath(blockedPath),
+    ]);
 
     const linkedDirectory = await trySymlink(rejectedDir, path.join(documentsDir, "escape-directory"), "dir");
     const linkedFile = await trySymlink(outsideSecretPath, path.join(documentsDir, "escape-file.txt"));
@@ -157,7 +163,7 @@ async function spotlightBoundaryTest() {
     assert.equal(unknownScript.openable, false, "unknown/script formats must be reveal-only");
 
     await spotlight.open(report.id, { action: "open" });
-    assert.deepEqual(launches.at(-1), { filePath: reportPath, action: "open" });
+    assert.deepEqual(launches.at(-1), { filePath: canonicalReportPath, action: "open" });
     clock += 400;
     assert.equal(JSON.stringify(await spotlight.open(report.id, { action: "reveal" })).includes(reportPath), false);
 
@@ -166,7 +172,7 @@ async function spotlightBoundaryTest() {
     await spotlight.open(injectionResult.id, { action: "open" });
     assert.deepEqual(
       launches.at(-1),
-      { filePath: injectionPath, action: "open" },
+      { filePath: canonicalInjectionPath, action: "open" },
       "metacharacters must reach only the fixed launcher argument, never a command string",
     );
 
@@ -180,7 +186,7 @@ async function spotlightBoundaryTest() {
     );
     clock += 400;
     await spotlight.open(blocked.id, { action: "reveal" });
-    assert.deepEqual(launches.at(-1), { filePath: blockedPath, action: "reveal" });
+    assert.deepEqual(launches.at(-1), { filePath: canonicalBlockedPath, action: "reveal" });
 
     await assert.rejects(
       spotlight.open(reportPath, { action: "open" }),

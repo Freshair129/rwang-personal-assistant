@@ -1,9 +1,9 @@
 ---
-version: "0.2.7b"
-doc_version: "0.2.7"
+version: "0.2.8b"
+doc_version: "0.2.8"
 doc_status: "approved"
 created_at: "2026-09-03T00:52:00+07:00,RWANG,d534d3f4299227162093c7dc02341da08144a98d"
-last_update: "2026-09-04T06:51:00+07:00,RWANG"
+last_update: "2026-09-04T07:02:00+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -56,6 +56,11 @@ granular trace ใน run `33818391621` ถึง `root-exists` แต่ไม�
 `enumeration-start`; ระหว่าง markers มีเพียงการเข้า `Get-SourceFiles`, สร้าง
 empty array, `New-Object Stack[string]` และ `Push` จึง localize จุดค้างที่
 cmdlet-based generic stack construction
+
+run `33818622277` หลัง static-constructor patch แสดง
+`RWANG Document Intelligence adapter tests passed` และเดินต่อถึง Spotlight
+suite จึงยืนยัน root cause/remediation ของ scanner; phase instrumentation ถูก
+ถอดออกหลังได้หลักฐานนี้
 
 ## Evidence
 
@@ -192,6 +197,8 @@ constructor ไม่ต้องผ่าน cmdlet resolution
 16. แทน `New-Object 'System.Collections.Generic.Stack[string]'` ด้วย static
     `[System.Collections.Generic.Stack[string]]::new()` และคง trace จน fresh
     hosted run ผ่าน phase นี้
+17. หลัง hosted Document Intelligence suite ผ่าน ให้ถอด trace parameter/markers
+    และคง regression fixture, static-constructor contract และ canonical digest
 
 ## Verification Evidence
 
@@ -256,6 +263,8 @@ not identify binaries rebuilt from the current source):
   ก่อนหน้าและแสดงว่าต้องเพิ่ม trace granularity
 - fresh run `33818391621` localize timeout ให้อยู่ก่อน `enumeration-start`
   หลัง `root-exists`, ตรงกับ cmdlet-based stack initialization
+- fresh run `33818622277` ผ่าน Document Intelligence adapter suite หลังเปลี่ยน
+  static constructor; failure ถัดไปอยู่ใน Spotlight test และไม่เกี่ยวกับ scanner
 
 ## Risk Assessment
 
@@ -287,6 +296,7 @@ runtime permission, approval gate, external action หรือ application data
 | RCA 0.2.4b | 0.2.5b beta | ยืนยัน Resolve-Path root cause และเปลี่ยนเป็น .NET path resolution |
 | RCA 0.2.5b | 0.2.6b beta | ถอน root-resolution conclusion และเพิ่ม granular phase trace |
 | RCA 0.2.6b | 0.2.7b beta | localize New-Object hang และเปลี่ยนเป็น static .NET constructor |
+| RCA 0.2.7b | 0.2.8b beta | บันทึก hosted scanner pass และถอด temporary phase trace |
 | Product 0.5.0 | Product 0.5.0 | hotfix ภายใน release pipeline; ไม่ bump public product version |
 
 ## CHANGELOG
@@ -303,3 +313,4 @@ runtime permission, approval gate, external action หรือ application data
 | 0.2.5b | 2026-09-04 | beta | phase trace ยืนยัน Resolve-Path ค้างก่อน enumeration และกำหนด provider-free root resolution | 619132a | RWANG |
 | 0.2.6b | 2026-09-04 | beta | run ใหม่หักล้าง Resolve-Path hypothesis และกำหนด granular bounded trace | b5250e5 | RWANG |
 | 0.2.7b | 2026-09-04 | beta | granular trace localize cmdlet stack construction และกำหนด static .NET constructor | 095afec | RWANG |
+| 0.2.8b | 2026-09-04 | beta | hosted runner ผ่าน Document Intelligence suite; ถอด bounded trace หลังยืนยัน RCA | a82635f | RWANG |
