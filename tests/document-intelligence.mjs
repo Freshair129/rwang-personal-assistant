@@ -20,6 +20,10 @@ const scannerSource = await readFile(
 );
 assert.doesNotMatch(scannerSource, /Get-ChildItem[^\r\n]*-Recurse/i,
   "the scanner must prune ignored directories and reparse points before recursion");
+assert.doesNotMatch(scannerSource, /Get-ChildItem/i,
+  "the scanner must not materialize PowerShell provider entries before pruning");
+assert.match(scannerSource, /Directory\]::EnumerateDirectories/,
+  "the scanner must enumerate directory names before reading child attributes");
 assert.match(scannerSource, /FileAttributes\]::ReparsePoint/,
   "the scanner must reject reparse points before enqueueing directories");
 const capability = createDocumentIntelligence({ rootDir });

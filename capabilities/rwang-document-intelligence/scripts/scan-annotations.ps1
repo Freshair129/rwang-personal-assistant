@@ -70,25 +70,35 @@ function Get-FilesByFilter {
     while ($pending.Count -gt 0) {
         $current = $pending.Pop()
         try {
-            $currentInfo = Get-Item -LiteralPath $current -ErrorAction Stop
-            if (($currentInfo.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) { continue }
-            $entries = @(Get-ChildItem -LiteralPath $current -ErrorAction Stop)
+            $currentAttributes = [System.IO.File]::GetAttributes($current)
+            if (($currentAttributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) { continue }
+            $filePaths = @([System.IO.Directory]::EnumerateFiles($current))
+            $directoryPaths = @([System.IO.Directory]::EnumerateDirectories($current))
         }
         catch {
             continue
         }
 
-        foreach ($entry in $entries) {
-            if (($entry.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) { continue }
-            if ($entry.PSIsContainer) {
-                if ($SkipDirs -notcontains $entry.Name) { $pending.Push($entry.FullName) }
-                continue
-            }
+        foreach ($filePath in $filePaths) {
+            $fileName = [System.IO.Path]::GetFileName($filePath)
             foreach ($filter in $Filters) {
-                if ($entry.Name -like $filter) {
-                    $files += $entry
+                if ($fileName -like $filter) {
+                    $files += [System.IO.FileInfo]::new($filePath)
                     break
                 }
+            }
+        }
+
+        foreach ($directoryPath in $directoryPaths) {
+            $directoryName = [System.IO.Path]::GetFileName($directoryPath)
+            if ($SkipDirs -contains $directoryName) { continue }
+            try {
+                $attributes = [System.IO.File]::GetAttributes($directoryPath)
+                if (($attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) { continue }
+                $pending.Push($directoryPath)
+            }
+            catch {
+                continue
             }
         }
     }

@@ -54,7 +54,7 @@ const RUNTIME_FILE_SHA256 = Object.freeze({
   "SOURCE.json": "3d36f4d0ec50aabaab003e36c136fb816a31bf94a6b9d1101f43784330549506",
   ".codex-plugin/plugin.json": "5785bb48f9be98902e281f1c3ccf7f8dd3d7a030eac926659358f4fa24a21f45",
   "references/execution-modes/zuri-v2.catalog.json": "96f0719b93a9f7addbbc101b0e14f4025cf03788b54387b454f29a60d3675273",
-  "scripts/scan-annotations.ps1": "90188114377fd1422cb950cc506599c8a215c0b8c119a181774e3def3152795c",
+  "scripts/scan-annotations.ps1": "84a5588f9135cb76534cfeb434f2c3be68a99e3d3abb8cdc128a4dbe0eca71d8",
   "scripts/validate-graph.ps1": "4ca070f89d45bf74518670db366e97c0f6ef952350de648e6debd841b4d36efc",
   "scripts/validate-plan.ps1": "c303935b9aa000e9a8dcbf7e5bc6d91c46af2b9417e76124ebd7438845e9ecd4",
   "skills/doc-architect/SKILL.md": "432a04564efc87fc421e110589b33b83a4e762bd5524c173deb389070f452ec0",
