@@ -1,9 +1,9 @@
 ---
-version: "0.2.8b"
-doc_version: "0.2.8"
+version: "0.2.9b"
+doc_version: "0.2.9"
 doc_status: "approved"
 created_at: "2026-09-03T00:52:00+07:00,RWANG,d534d3f4299227162093c7dc02341da08144a98d"
-last_update: "2026-09-04T07:02:00+07:00,RWANG"
+last_update: "2026-09-04T07:10:00+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -61,6 +61,11 @@ run `33818622277` หลัง static-constructor patch แสดง
 `RWANG Document Intelligence adapter tests passed` และเดินต่อถึง Spotlight
 suite จึงยืนยัน root cause/remediation ของ scanner; phase instrumentation ถูก
 ถอดออกหลังได้หลักฐานนี้
+
+run `33819134371` หลังถอด trace กลับ timeout ที่ 30,029 ms ขณะที่ scanner code
+และ fixture เหมือนรอบที่ผ่าน จึงแสดงว่า static-constructor hardening ไม่ใช่
+root cause ทั้งหมด และ deadline 30 วินาทีอยู่ในช่วงความแปรปรวนของ cold hosted
+Windows PowerShell action
 
 ## Evidence
 
@@ -135,6 +140,13 @@ generic stack ภายใต้ minimal Windows PowerShell environment ขอ�
 command/module resolution ไม่คืน control ก่อน timeout ขณะที่ static .NET
 constructor ไม่ต้องผ่าน cmdlet resolution
 
+fresh-run evidence รวมกันยืนยัน root cause ระดับ execution budget: fixed action
+deadline 30 วินาทีสั้นกว่าความแปรปรวนของ cold Windows PowerShell/hosted security
+scanning; failure ทุกครั้งตัดที่ 30,024-30,142 ms แต่ code เดียวกันผ่านและรัน
+Document Intelligence suite ครบใน run `33818622277` เมื่อแต่ละ action อยู่ใต้
+deadline อย่างฉิวเฉียด การตัดที่ deadline จึงเป็น false timeout ไม่ใช่หลักฐาน
+unbounded repository traversal
+
 ## Why the Issue Escaped Detection
 
 - security suite ถูกตรวจครั้งแรกก่อน staging
@@ -199,6 +211,9 @@ constructor ไม่ต้องผ่าน cmdlet resolution
     hosted run ผ่าน phase นี้
 17. หลัง hosted Document Intelligence suite ผ่าน ให้ถอด trace parameter/markers
     และคง regression fixture, static-constructor contract และ canonical digest
+18. ขยาย per-action deadline จาก 30 เป็น 60 วินาที โดยยัง kill child และมี
+    fallback completion เดิม; เพิ่ม source contract ป้องกัน accidental unbounded
+    timeout และไม่เปลี่ยน traversal/output caps
 
 ## Verification Evidence
 
@@ -265,6 +280,8 @@ not identify binaries rebuilt from the current source):
   หลัง `root-exists`, ตรงกับ cmdlet-based stack initialization
 - fresh run `33818622277` ผ่าน Document Intelligence adapter suite หลังเปลี่ยน
   static constructor; failure ถัดไปอยู่ใน Spotlight test และไม่เกี่ยวกับ scanner
+- fresh run `33819134371` ล้มที่ 30,029 ms หลังถอด trace ทั้งที่ code path เดิม
+  เคยผ่าน จึงยืนยัน 30-second hosted variance false-timeout boundary
 
 ## Risk Assessment
 
@@ -297,6 +314,7 @@ runtime permission, approval gate, external action หรือ application data
 | RCA 0.2.5b | 0.2.6b beta | ถอน root-resolution conclusion และเพิ่ม granular phase trace |
 | RCA 0.2.6b | 0.2.7b beta | localize New-Object hang และเปลี่ยนเป็น static .NET constructor |
 | RCA 0.2.7b | 0.2.8b beta | บันทึก hosted scanner pass และถอด temporary phase trace |
+| RCA 0.2.8b | 0.2.9b beta | เพิ่ม bounded 60-second deadline ตาม hosted cold-start evidence |
 | Product 0.5.0 | Product 0.5.0 | hotfix ภายใน release pipeline; ไม่ bump public product version |
 
 ## CHANGELOG
@@ -314,3 +332,4 @@ runtime permission, approval gate, external action หรือ application data
 | 0.2.6b | 2026-09-04 | beta | run ใหม่หักล้าง Resolve-Path hypothesis และกำหนด granular bounded trace | b5250e5 | RWANG |
 | 0.2.7b | 2026-09-04 | beta | granular trace localize cmdlet stack construction และกำหนด static .NET constructor | 095afec | RWANG |
 | 0.2.8b | 2026-09-04 | beta | hosted runner ผ่าน Document Intelligence suite; ถอด bounded trace หลังยืนยัน RCA | a82635f | RWANG |
+| 0.2.9b | 2026-09-04 | beta | repeated exact-deadline failures ยืนยัน 30-second false timeout; เพิ่ม bounded budget เป็น 60 วินาที | a0defae | RWANG |

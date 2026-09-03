@@ -14,6 +14,8 @@ const rootDir = realpathSync(path.dirname(fileURLToPath(new URL("../package.json
 const adapterSource = await readFile(path.join(rootDir, "document-intelligence.mjs"), "utf8");
 assert.match(adapterSource, /SCAN_SKIPPED_DIRECTORIES[\s\S]*?"\.pnpm-store"[\s\S]*?\]\);/,
   "Document Intelligence must skip the gitignored pnpm dependency cache");
+assert.match(adapterSource, /const PROCESS_TIMEOUT_MS = 60_000;/,
+  "Windows PowerShell actions must keep the approved bounded hosted-runner deadline");
 const scannerSource = await readFile(
   path.join(rootDir, "capabilities", "rwang-document-intelligence", "scripts", "scan-annotations.ps1"),
   "utf8",
