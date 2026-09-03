@@ -257,7 +257,7 @@ select, input, textarea { border: 1px solid var(--line); color: var(--text); bac
 .composer-model label { width: min(100%, 420px); display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px; }
 .composer-model label > span { color: var(--dim); font: 650 7px ui-monospace, monospace; letter-spacing: .12em; white-space: nowrap; }
 .composer-model select { width: 100%; min-width: 0; height: 34px; padding: 0 28px 0 9px; font: 9px ui-monospace, monospace; }
-.assistant-disclosure { width: min(100%, 420px); margin: 0; color: var(--muted); font-size: 9px; line-height: 1.55; }
+.assistant-disclosure { width: min(100%, 420px); margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
 .assistant-disclosure strong { color: var(--text); font-weight: 650; }
 .send-button, .stop-button, .mic-mini, .primary-button, .secondary-button, .small-button {
   height: 34px;
@@ -882,7 +882,7 @@ dialog::backdrop { background: rgba(1, 7, 9, .82); backdrop-filter: blur(4px); }
   .composer { margin: 0 8px 8px; }
   .composer-model { margin: -2px 8px 12px; align-items: stretch; }
   .composer-model label { width: 100%; grid-template-columns: 1fr; gap: 6px; }
-  .assistant-disclosure { width: 100%; }
+  .assistant-disclosure { width: 100%; font-size: 12px; }
   .composer-bar > span { display: none; }
   .composer-bar { justify-content: flex-end; }
   .approval-card { grid-template-columns: 1fr; }

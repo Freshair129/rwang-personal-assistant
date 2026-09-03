@@ -1,3 +1,17 @@
+---
+version: "0.1.0b"
+created_at: "2026-09-03T02:33:20+07:00,Freshair129,3a6657caf0519f54b8bee05658f3047856e64b65"
+last_update: "2026-09-04T05:34:37+07:00,RWANG"
+status: "beta"
+superseded_by: null
+attributes:
+  domain: "desktop-release"
+  scope: "runtime-staging"
+  doc_type: "core-directive"
+  language: "en"
+  change_risk: "MEDIUM"
+---
+
 # Desktop Alpha runtime staging
 
 The Windows desktop bundle consumes one validated tree:
@@ -72,13 +86,22 @@ desktop/stage/rwang/
 The packaged destination is `<resource-dir>/rwang/runtime/node/node.exe`.
 
 The staging script runs
-`pnpm install --prod --frozen-lockfile --ignore-scripts --node-linker=hoisted`
-in an isolated work directory. It rejects junctions/symlinks and other
-reparse points before materializing `node_modules`, then writes a manifest whose
-paths are relative to `rwang` and whose Node fields include the verified
-executable and archive digests. The script accepts explicit `-NodePath`,
-`-NodeLicensePath`, and `-NodeSha256` for a controlled local fixture; real
-staging requires the pinned `scripts/node-runtime.json` metadata and Node 24.
+`pnpm --config.enable-global-virtual-store=false install --prod --frozen-lockfile --ignore-scripts --node-linker=hoisted`
+in an isolated work directory. Disabling pnpm's global virtual store prevents a
+project junction under `.pnpm-store/v11/projects` from pointing back to the
+disposable `.rwang-build-*` directory. The script rejects junctions/symlinks and
+other reparse points before materializing `node_modules`, removes install-only
+pnpm metadata, and writes a manifest whose paths are relative to `rwang` and
+whose Node fields include the verified executable and archive digests. Neither
+the staged tree nor its manifest may contain `.env` or `.env.*` files. The
+script accepts explicit `-NodePath`, `-NodeLicensePath`, and `-NodeSha256` for a
+controlled local fixture; real staging requires the pinned
+`scripts/node-runtime.json` metadata and Node 24.
+
+Both acquisition and staging compute SHA-256 with the .NET cryptography API.
+They do not depend on PowerShell module auto-loading, so the same verification
+works in Windows PowerShell 5.1 and PowerShell 7. CI invokes both scripts
+directly in an explicit `pwsh` step.
 
 The only cleanup targets are a GUID-named work directory below
 `desktop/stage` and the exact existing `desktop/stage/rwang` tree when
@@ -129,6 +152,7 @@ pnpm test:security
 pnpm test:desktop-package
 pnpm test:model-selector-layout
 pnpm test:desktop-contract
+git diff --check
 pnpm exec tauri build --no-bundle
 ```
 
@@ -137,3 +161,16 @@ recompute every listed SHA-256, confirm the required Node `LICENSE` and
 `node-runtime.json` are present, and verify that no reparse points exist under
 the staged tree before invoking the NSIS build. The staging contract test also
 exercises `-DryRun` and asserts that it does not mutate an existing stage.
+
+## Version Diff
+
+| From | To | Change |
+|---|---|---|
+| Unversioned | 0.1.0b | Record the deterministic pnpm mode, shell-independent hashing, secret-file exclusion, and post-stage gates |
+| Product 0.5.0 | Product 0.5.0 | Release contract correction only; no product version bump |
+
+## CHANGELOG
+
+| Version | Date | Status | Summary | Commit Hash | Agent |
+|---|---|---|---|---|---|
+| 0.1.0b | 2026-09-04 | beta | Align runtime staging documentation with the implemented security and CI contract | uncommitted | RWANG |

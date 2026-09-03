@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { access, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { access, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -11,6 +11,9 @@ const scriptPath = path.join(repositoryRoot, "scripts", "stage-desktop-runtime.p
 const acquireScriptPath = path.join(repositoryRoot, "scripts", "acquire-node-runtime.ps1");
 const nodeRuntimeSpecPath = path.join(repositoryRoot, "scripts", "node-runtime.json");
 const docsPath = path.join(repositoryRoot, "docs", "desktop-package-staging.md");
+const releaseDocsPath = path.join(repositoryRoot, "docs", "desktop-release.md");
+const desktopDagPath = path.join(repositoryRoot, "docs", "desktop-dag.md");
+const readmePath = path.join(repositoryRoot, "README.md");
 const desktopWorkflowPath = path.join(repositoryRoot, ".github", "workflows", "desktop.yml");
 const stageRoot = path.join(repositoryRoot, "desktop", "stage");
 const runtimeRoot = path.join(stageRoot, "rwang");
@@ -22,6 +25,19 @@ async function exists(filePath) {
   } catch {
     return false;
   }
+}
+
+async function listRelativeFiles(root, current = root) {
+  const files = [];
+  for (const entry of await readdir(current, { withFileTypes: true })) {
+    const absolute = path.join(current, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...await listRelativeFiles(root, absolute));
+    } else if (entry.isFile()) {
+      files.push(path.relative(root, absolute).replaceAll(path.sep, "/"));
+    }
+  }
+  return files;
 }
 
 function runPowerShell(command, args) {
@@ -42,23 +58,39 @@ function runPowerShell(command, args) {
   });
 }
 
-async function findPowerShell() {
-  if (process.platform !== "win32") return null;
+async function findPowerShellHosts() {
+  if (process.platform !== "win32") return [];
+  const hosts = [];
   for (const candidate of ["powershell", "pwsh"]) {
     try {
       const result = await runPowerShell(candidate, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "$PSVersionTable.PSVersion.ToString()"]);
-      if (result.code === 0) return candidate;
+      if (result.code === 0) hosts.push(candidate);
     } catch {
-      // Try the Windows inbox host if pwsh is not installed.
+      // Keep probing; developer machines may have only one host.
     }
   }
-  return null;
+  if (process.env.CI) {
+    assert.deepEqual(hosts, ["powershell", "pwsh"], "Windows CI must exercise both PowerShell 5.1 and PowerShell 7");
+  }
+  return hosts;
+}
+
+function assertOrdered(text, label, markers) {
+  let previous = -1;
+  for (const marker of markers) {
+    const index = text.indexOf(marker, previous + 1);
+    assert.ok(index > previous, `${label} must contain ${marker} after the preceding gate`);
+    previous = index;
+  }
 }
 
 async function staticContract() {
-  const [script, docs, acquireScript, nodeRuntimeSpecText, desktopWorkflow] = await Promise.all([
+  const [script, docs, releaseDocs, desktopDag, readme, acquireScript, nodeRuntimeSpecText, desktopWorkflow] = await Promise.all([
     readFile(scriptPath, "utf8"),
     readFile(docsPath, "utf8"),
+    readFile(releaseDocsPath, "utf8"),
+    readFile(desktopDagPath, "utf8"),
+    readFile(readmePath, "utf8"),
     readFile(acquireScriptPath, "utf8"),
     readFile(nodeRuntimeSpecPath, "utf8"),
     readFile(desktopWorkflowPath, "utf8"),
@@ -73,6 +105,7 @@ async function staticContract() {
   assert.match(script, /Node 24/);
   assert.match(script, /--config\.enable-global-virtual-store=false install --prod --frozen-lockfile --ignore-scripts --node-linker=hoisted/);
   assert.match(script, /Remove-PnpmInstallMetadata/);
+  assert.match(script, /forbidden \.env secret file/);
   for (const metadata of [
     ".bin",
     ".modules.yaml",
@@ -84,7 +117,9 @@ async function staticContract() {
       `staging must remove pnpm install-only metadata: ${metadata}`);
   }
   assert.doesNotMatch(script, /pnpm\s+deploy/i, "staging must not depend on pnpm deploy links");
-  assert.match(script, /Get-FileHash\s+-LiteralPath.*-Algorithm SHA256/);
+  assert.match(script, /function Get-Sha256Hex/);
+  assert.match(script, /\[Security\.Cryptography\.SHA256\]::Create\(\)/);
+  assert.doesNotMatch(script, /Get-FileHash/);
   assert.match(script, /runtime-manifest\.json/);
   assert.match(script, /Assert-StagingPath/);
   assert.match(script, /Assert-NotReparse/);
@@ -113,16 +148,25 @@ async function staticContract() {
   }
 
   assert.match(docs, /desktop\/stage\/rwang/);
-  assert.match(docs, /pnpm install --prod --frozen-lockfile/);
+  assert.match(docs, /pnpm --config\.enable-global-virtual-store=false install --prod --frozen-lockfile --ignore-scripts --node-linker=hoisted/);
   assert.match(docs, /rwang\/runtime\/node\/node\.exe/);
   assert.match(docs, /resources/);
   assert.match(docs, /junctions?\/symlinks|external junction/i);
   assert.match(docs, /desktop:stage/);
   assert.match(docs, /desktop:runtime/);
   assert.match(docs, /v24\.20\.0/);
+  for (const document of [docs, releaseDocs, desktopDag]) {
+    assert.match(document, /^---\r?\nversion: "\d+\.\d+\.\d+b"/);
+    assert.match(document, /\ncreated_at: ".+,[^,]+,[0-9a-f]{40}"/);
+    assert.match(document, /\nlast_update: ".+,[^,]+"/);
+    assert.match(document, /\nstatus: "beta"/);
+    assert.match(document, /\n## CHANGELOG\r?\n/);
+  }
   assert.match(acquireScript, /Invoke-WebRequest/);
   assert.match(acquireScript, /Expand-Archive/);
-  assert.match(acquireScript, /Get-FileHash\s+-LiteralPath.*-Algorithm SHA256/);
+  assert.match(acquireScript, /function Get-Sha256Hex/);
+  assert.match(acquireScript, /\[Security\.Cryptography\.SHA256\]::Create\(\)/);
+  assert.doesNotMatch(acquireScript, /Get-FileHash/);
   assert.match(acquireScript, /LICENSE/);
   const nodeRuntimeSpec = JSON.parse(nodeRuntimeSpecText);
   assert.equal(nodeRuntimeSpec.version, "v24.20.0");
@@ -132,21 +176,68 @@ async function staticContract() {
   assert.match(nodeRuntimeSpec.archiveSha256, /^[0-9a-f]{64}$/);
   assert.match(nodeRuntimeSpec.nodeSha256, /^[0-9a-f]{64}$/);
 
+  assert.doesNotMatch(desktopWorkflow, /Get-FileHash/);
+  assert.doesNotMatch(desktopWorkflow, /sbom|placeholder/i);
+  const directPwshStageCalls = desktopWorkflow.match(/shell: pwsh\s+run: \.\\scripts\\stage-desktop-runtime\.ps1 -ReplaceExisting/g) ?? [];
+  assert.equal(directPwshStageCalls.length, 2, "both CI jobs must stage directly in explicit pwsh steps");
+
+  const ciJob = desktopWorkflow.split(/\n  desktop-ci:\s*\n/)[1]?.split(/\n  desktop-release:\s*\n/)[0];
   const releaseJob = desktopWorkflow.split(/\n  desktop-release:\s*\n/)[1];
+  assert.ok(ciJob, "desktop workflow must define the CI job");
   assert.ok(releaseJob, "desktop workflow must define the release job");
-  const releaseStageIndex = releaseJob.indexOf("pnpm desktop:stage");
-  const releaseSecurityIndex = releaseJob.indexOf("pnpm test:security");
-  const releasePackageIndex = releaseJob.indexOf("pnpm test:desktop-contract");
-  const releaseBuildIndex = releaseJob.indexOf("pnpm exec tauri build --bundles nsis");
-  assert.ok(releaseStageIndex >= 0, "release job must stage the deterministic runtime");
-  assert.ok(releaseStageIndex < releaseSecurityIndex, "release job must run security tests after staging");
-  assert.ok(releaseSecurityIndex < releasePackageIndex, "release job must run the complete desktop contract");
-  assert.ok(releasePackageIndex < releaseBuildIndex, "release job must verify the staged tree before building NSIS");
+  const canonicalPrefix = [
+    "pnpm install --frozen-lockfile",
+    "pnpm check",
+    ".\\scripts\\acquire-node-runtime.ps1 -ReplaceExisting",
+    ".\\scripts\\stage-desktop-runtime.ps1 -ReplaceExisting",
+    "pnpm test:security",
+    "pnpm test:desktop-package",
+    "pnpm test:model-selector-layout",
+    "pnpm test:desktop-contract",
+    "git diff --check",
+    "cargo fmt --all --manifest-path src-tauri/Cargo.toml -- --check",
+    "cargo check --manifest-path src-tauri/Cargo.toml",
+    "cargo test --manifest-path src-tauri/Cargo.toml",
+  ];
+  assertOrdered(ciJob, "desktop CI job", [...canonicalPrefix, "pnpm exec tauri build --no-bundle"]);
+  assertOrdered(releaseJob, "desktop release job", [...canonicalPrefix, "pnpm exec tauri build --bundles nsis"]);
+  assert.match(releaseJob, /-Filter "RWANG_\*_x64-setup\.exe"/);
+  assert.match(releaseJob, /\$nsisFiles\.Count -ne 1/);
+  assert.match(releaseJob, /\$copiedHash -ne \$sourceHash/);
+  assert.match(releaseJob, /\$recordedChecksum -ne \$checksumLine/);
+
+  const readmeRuntimeIndex = readme.indexOf("pnpm desktop:runtime");
+  const readmeStageIndex = readme.indexOf("pnpm desktop:stage", readmeRuntimeIndex);
+  const readmeSecurityIndex = readme.indexOf("pnpm test:security", readmeStageIndex);
+  const readmeContractIndex = readme.indexOf("pnpm test:desktop-contract", readmeStageIndex);
+  assert.ok(readmeRuntimeIndex >= 0 && readmeRuntimeIndex < readmeStageIndex,
+    "README must acquire the pinned runtime before staging");
+  assert.ok(readmeStageIndex < readmeSecurityIndex && readmeSecurityIndex < readmeContractIndex,
+    "README must run security and desktop contracts after staging");
+  assertOrdered(readme.slice(readmeRuntimeIndex), "README desktop gate", [
+    "pnpm desktop:runtime",
+    "pnpm desktop:stage",
+    "pnpm test:security",
+    "pnpm test:desktop-package",
+    "pnpm test:model-selector-layout",
+    "pnpm test:desktop-contract",
+    "git diff --check",
+    "cargo fmt --all --manifest-path src-tauri/Cargo.toml -- --check",
+    "cargo check --manifest-path src-tauri/Cargo.toml",
+    "cargo test --manifest-path src-tauri/Cargo.toml",
+    "pnpm exec tauri build --no-bundle",
+  ]);
+  assert.match(releaseDocs, /RWANG_\*_x64-setup\.exe/);
+  assert.doesNotMatch(releaseDocs, /sbom|placeholder/i);
+  assert.match(desktopDag, /%LOCALAPPDATA%\\com\.freshair129\.rwang\\data/);
+  assert.doesNotMatch(desktopDag, /%APPDATA%\\RWANG/);
+  assert.match(desktopDag, /manual.*Windows 11/i);
+  assert.match(desktopDag, /manual.*Windows 10/i);
 }
 
 async function dryRunContract() {
-  const powershell = await findPowerShell();
-  if (!powershell) {
+  const powershellHosts = await findPowerShellHosts();
+  if (powershellHosts.length === 0) {
     console.log("RWANG desktop package dry-run skipped: PowerShell is unavailable");
     return;
   }
@@ -162,28 +253,27 @@ async function dryRunContract() {
     .digest("hex");
   await writeFile(licensePath, "Node.js license fixture for dry-run validation\n", "utf8");
   try {
-    const result = await runPowerShell(powershell, [
-      "-NoLogo",
-      "-NoProfile",
-      "-NonInteractive",
-      "-ExecutionPolicy",
-      "Bypass",
-      "-File",
-      scriptPath,
-      "-DryRun",
-      "-NodePath",
-      process.execPath,
-      "-NodeLicensePath",
-      licensePath,
-      "-NodeSha256",
-      nodeSha256,
-    ]);
-    assert.equal(result.code, 0, `PowerShell dry-run failed:\n${result.stdout}\n${result.stderr}`);
-    assert.match(result.stdout, /DRY RUN: no files were written under desktop\/stage/);
-    assert.equal(await exists(runtimeRoot), beforeStage, "dry-run must not create runtime output");
-    if (beforeStage) {
-      const afterStageStat = await stat(runtimeRoot);
-      assert.equal(afterStageStat.mtimeMs, beforeStageStat.mtimeMs, "dry-run must not mutate existing output");
+    for (const powershell of powershellHosts) {
+      const result = await runPowerShell(powershell, [
+        "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+        "-File", scriptPath, "-DryRun", "-NodePath", process.execPath,
+        "-NodeLicensePath", licensePath, "-NodeSha256", nodeSha256,
+      ]);
+      assert.equal(result.code, 0, `${powershell} staging dry-run failed:\n${result.stdout}\n${result.stderr}`);
+      assert.match(result.stdout, /DRY RUN: no files were written under desktop\/stage/);
+      assert.equal(await exists(runtimeRoot), beforeStage, `${powershell} dry-run must not create runtime output`);
+      if (beforeStage) {
+        const afterStageStat = await stat(runtimeRoot);
+        assert.equal(afterStageStat.mtimeMs, beforeStageStat.mtimeMs, `${powershell} dry-run must not mutate existing output`);
+      }
+
+      const mismatch = await runPowerShell(powershell, [
+        "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+        "-File", scriptPath, "-DryRun", "-NodePath", process.execPath,
+        "-NodeLicensePath", licensePath, "-NodeSha256", "0".repeat(64),
+      ]);
+      assert.notEqual(mismatch.code, 0, `${powershell} staging dry-run must fail closed on a SHA-256 mismatch`);
+      assert.match(`${mismatch.stdout}\n${mismatch.stderr}`, /SHA-256 mismatch/);
     }
   } finally {
     await rm(fixtureRoot, { recursive: true, force: true });
@@ -191,21 +281,15 @@ async function dryRunContract() {
 }
 
 async function dryRunAcquireContract() {
-  const powershell = await findPowerShell();
-  if (!powershell) return;
-
-  const result = await runPowerShell(powershell, [
-    "-NoLogo",
-    "-NoProfile",
-    "-NonInteractive",
-    "-ExecutionPolicy",
-    "Bypass",
-    "-File",
-    acquireScriptPath,
-    "-DryRun",
-  ]);
-  assert.equal(result.code, 0, `Node runtime dry-run failed:\n${result.stdout}\n${result.stderr}`);
-  assert.match(result.stdout, /DRY RUN: no download or runtime files were written/);
+  const powershellHosts = await findPowerShellHosts();
+  for (const powershell of powershellHosts) {
+    const result = await runPowerShell(powershell, [
+      "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+      "-File", acquireScriptPath, "-DryRun",
+    ]);
+    assert.equal(result.code, 0, `${powershell} Node runtime dry-run failed:\n${result.stdout}\n${result.stderr}`);
+    assert.match(result.stdout, /DRY RUN: no download or runtime files were written/);
+  }
 }
 
 async function stagedRuntimeContract() {
@@ -225,6 +309,16 @@ async function stagedRuntimeContract() {
       `staged runtime must exclude pnpm install-only metadata: ${relative}`);
   }
   const manifest = JSON.parse(await readFile(path.join(runtimeRoot, "runtime-manifest.json"), "utf8"));
+  const secretEnvironmentPattern = /(^|\/)\.env(?:\.|$)/i;
+  const stagedFiles = await listRelativeFiles(runtimeRoot);
+  for (const relative of stagedFiles) {
+    assert.equal(secretEnvironmentPattern.test(relative), false,
+      `staged source must exclude .env secret files: ${relative}`);
+  }
+  for (const { path: relative } of manifest.files) {
+    assert.equal(secretEnvironmentPattern.test(relative), false,
+      `runtime manifest must exclude .env secret files: ${relative}`);
+  }
   const manifestPaths = new Set(manifest.files.map(({ path: relative }) => relative));
   for (const relative of forbidden) {
     assert.equal(manifestPaths.has(relative), false,

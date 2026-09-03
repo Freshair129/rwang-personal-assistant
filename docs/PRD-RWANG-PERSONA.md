@@ -1,9 +1,9 @@
 ---
-version: "0.2.1b"
-doc_version: "0.2.1"
+version: "0.2.2b"
+doc_version: "0.2.2"
 doc_status: "approved"
 created_at: "2026-09-02T15:36:14+07:00,RWANG,d534d3f4299227162093c7dc02341da08144a98d"
-last_update: "2026-09-03T00:35:05+07:00,RWANG"
+last_update: "2026-09-04T05:27:58+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -15,7 +15,7 @@ attributes:
   target_product_version: "0.5.0"
   owner: "Boss (บอส)"
   approved_by: "Boss (บอส)"
-  baseline_commit: "d534d3f4299227162093c7dc02341da08144a98d"
+  baseline_commit: "3a6657caf0519f54b8bee05658f3047856e64b65"
 ---
 
 # PRD — RWANG Persona and Trust Contract
@@ -29,6 +29,8 @@ attributes:
 | Complexity | C-2 — Documentation-Driven Implementation |
 | Change risk | MEDIUM — system prompt, user trust copy and release contract |
 | Approval | Approved by Boss (บอส), 2026-09-02 |
+| Alignment baseline | `3a6657caf0519f54b8bee05658f3047856e64b65` — first committed Persona Beta implementation |
+| Automated evidence boundary | static prompt-policy mapping only; ไม่ใช่ผลทดสอบพฤติกรรมของ Ollama model |
 
 เอกสารนี้เป็น persona-level product contract ไม่แทนที่ security, desktop,
 remote, Spotlight หรือ integration contracts ที่มีอยู่ และไม่เพิ่ม permission ใหม่
@@ -179,7 +181,7 @@ Placeholder, TODO, mock และ stub อนุญาตเฉพาะเม�
 |---|---|
 | NFR-001 | Persona policy ใช้ system prompt ชุดเดียวทั้ง agent และ native fallback |
 | NFR-002 | Public disclosure ต้องมองเห็นได้และเชื่อมกับ model selector ด้วย accessible description |
-| NFR-003 | Disclosure ต้องสั้น อ่านได้บน mobile และไม่ใช้ aria-live |
+| NFR-003 | Disclosure ต้องสั้น มี font-size อย่างน้อย 12px ทั้ง desktop/mobile และไม่ใช้ aria-live |
 | NFR-004 | Public UI ต้องไม่ใช้ internal lore “ปี้เจ้า” |
 | NFR-005 | Persona contract ต้องมี static regression test ใน security gate |
 | NFR-006 | Product version ใน package, Tauri และ Cargo ต้องตรงกัน |
@@ -188,8 +190,8 @@ Placeholder, TODO, mock และ stub อนุญาตเฉพาะเม�
 
 Persona Beta automated gate ผ่านเมื่อ:
 
-- contract tests ครอบคลุม PER-013 ถึง PER-020 และผ่าน
-- deterministic catalog มีอย่างน้อย 30 adversarial persona scenarios และทุก scenario map กลับไปยัง shared prompt policy
+- contract tests ครอบคลุม PER-001 ถึง PER-020 และผ่าน
+- deterministic catalog มีอย่างน้อย 30 adversarial persona scenarios และทุก scenario map ทั้ง `promptPattern` และ `expectedPattern` กลับไปยัง shared prompt policy
 - system prompt เดียวถูกใช้ทั้ง ToolLoopAgent และ native Ollama fallback
 - มี disclosure หนึ่งจุดใต้ model selector ทั้ง desktop และ mobile
 - unlabeled placeholder ใน release scope เท่ากับ 0
@@ -207,6 +209,7 @@ Ollama model preset และบันทึกหลักฐาน manual/mode
 
 static prompt coverage ไม่ถือเป็นหลักฐานว่า local model ทุกตัวจะทำตาม
 จึงห้ามใช้ผล automated gate เพื่ออ้างว่า behavior ของทุก model ผ่านแล้ว
+ผล automated catalog ต้องระบุชัดว่าไม่มีการ execute model ใน gate นี้
 
 ## 13. Risks and Mitigations
 
@@ -242,6 +245,7 @@ static prompt coverage ไม่ถือเป็นหลักฐานว่
 |---|---|---|
 | PRD 0.1.0b candidate | PRD 0.2.0b beta | เพิ่ม AI disclosure by name, Agreement Contract, Care Loop, PER-013 ถึง PER-020 และ Placeholder Doctrine |
 | PRD 0.2.0b beta | PRD 0.2.1b beta | เพิ่ม doc-graph metadata และแยก deterministic Beta gate จาก per-model Stable evaluation |
+| PRD 0.2.1b beta | PRD 0.2.2b beta | ลง persona/role/DDD-RCA/PER-010 ถึง PER-012 ใน shared prompt, ผูก scenario expectation กับ policy และเพิ่ม disclosure ขั้นต่ำ 12px |
 | Product 0.4.0 | Product 0.5.0 | เพิ่ม persona prompt contract, disclosure UI และ regression tests |
 | Security boundaries | Unchanged | ไม่มี permission, telemetry, approval bypass หรือ external action ใหม่ |
 
@@ -249,6 +253,7 @@ static prompt coverage ไม่ถือเป็นหลักฐานว่
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
-| 0.1.0b | 2026-09-02 | candidate | นิยาม persona และ cultural connection ฉบับเสนอ | uncommitted | RWANG |
-| 0.2.0b | 2026-09-02 | beta | อนุมัติ AI disclosure by name, anti-sycophancy และ placeholder doctrine | uncommitted | RWANG |
-| 0.2.1b | 2026-09-02 | beta | เพิ่ม deterministic scenario coverage และแยก manual per-model stable gate | uncommitted | RWANG |
+| 0.1.0b | 2026-09-02 | candidate | นิยาม persona และ cultural connection ฉบับเสนอ | 3a6657c | RWANG |
+| 0.2.0b | 2026-09-02 | beta | อนุมัติ AI disclosure by name, anti-sycophancy และ placeholder doctrine | 3a6657c | RWANG |
+| 0.2.1b | 2026-09-02 | beta | เพิ่ม deterministic scenario coverage และแยก manual per-model stable gate | 3a6657c | RWANG |
+| 0.2.2b | 2026-09-04 | beta | จัด alignment ระหว่าง PRD, shared prompt, expected policy tests และ disclosure readability โดยยังไม่อ้าง Stable | pending; baseline 3a6657c | RWANG |

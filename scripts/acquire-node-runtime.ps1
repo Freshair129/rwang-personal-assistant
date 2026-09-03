@@ -8,9 +8,6 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
-# Keep hashing deterministic when the script is launched from Node with
-# Windows PowerShell's module auto-loading disabled.
-Import-Module Microsoft.PowerShell.Utility -ErrorAction Stop
 
 # The runtime destination is intentionally fixed.  Keeping acquisition and
 # staging under known repository paths prevents a release job from writing a
@@ -22,6 +19,20 @@ $runtimeRoot = [IO.Path]::GetFullPath((Join-Path $runtimeParent "node"))
 
 function Normalize-PathString([string]$Path) {
     return ([IO.Path]::GetFullPath($Path)).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+}
+
+function Get-Sha256Hex([string]$Path) {
+    $stream = [IO.File]::OpenRead($Path)
+    try {
+        $sha256 = [Security.Cryptography.SHA256]::Create()
+        try {
+            return ([BitConverter]::ToString($sha256.ComputeHash($stream))).Replace("-", "").ToLowerInvariant()
+        } finally {
+            $sha256.Dispose()
+        }
+    } finally {
+        $stream.Dispose()
+    }
 }
 
 function Assert-NotReparse([string]$Path) {
@@ -63,7 +74,7 @@ function Assert-Sha256([string]$Path, [string]$Expected, [string]$Label) {
     if ($Expected -notmatch '^[0-9a-fA-F]{64}$') {
         throw "$Label expected SHA-256 is not a 64-character hexadecimal value"
     }
-    $actual = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+    $actual = Get-Sha256Hex $Path
     if ($actual -ne $Expected.ToLowerInvariant()) {
         throw "$Label SHA-256 mismatch: expected $($Expected.ToLowerInvariant()), got $actual"
     }

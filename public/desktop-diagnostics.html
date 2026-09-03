@@ -15,7 +15,7 @@
       </a>
       <div class="connection">
         <i aria-hidden="true"></i>
-        <span><strong>LOCAL ONLY</strong><small>NO TELEMETRY</small></span>
+        <span><strong>ON DEVICE</strong><small>NO TELEMETRY</small></span>
       </div>
       <div class="top-actions">
         <a class="settings-button" href="/">BACK TO RWANG</a>
@@ -129,7 +129,7 @@
             </label>
             <label class="check-field">
               <input type="checkbox" data-gate-check>
-              <span>ปิดและเปิดแอปใหม่แล้วไม่พบ orphan sidecar process หรือ permission ค้างจาก diagnostic page</span>
+              <span>กด X แล้วแอปซ่อนโดย sidecar ยังทำงาน จากนั้นใช้ Tray &gt; Quit และยืนยันว่าไม่เหลือ orphan sidecar process หรือ permission ค้าง</span>
             </label>
             <div class="action-row">
               <button class="primary-button" type="submit">RECORD LOCAL GATE</button>
@@ -138,7 +138,7 @@
           <output id="manualGateOutput" class="panel-footnote warning" aria-live="polite">MANUAL GATE PENDING · ยังไม่มีการรับรอง</output>
         </section>
 
-        <p class="security-note warning"><strong>Local-only contract</strong><br>หน้านี้ไม่ใช้ CDN, ไม่สร้าง WebSocket/EventSource, ไม่ใช้ beacon/XHR และไม่เรียก permission เองเมื่อโหลด การตรวจ MediaPipe ใช้ HEAD requests ไปยัง `/vendor/` ภายใน origin ปัจจุบันเท่านั้น</p>
+        <p class="security-note warning"><strong>On-device diagnostic — not an access-control boundary</strong><br>เปิดผ่าน exact loopback sidecar origin เท่านั้น หน้านี้ไม่ใช้ CDN, ไม่สร้าง WebSocket/EventSource, ไม่ใช้ beacon/XHR และไม่เรียก permission เองเมื่อโหลด การตรวจ MediaPipe ใช้ HEAD requests ไปยัง `/vendor/` ภายใน origin ปัจจุบันเท่านั้น</p>
       </section>
     </main>
 

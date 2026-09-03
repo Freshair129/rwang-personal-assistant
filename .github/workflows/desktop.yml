@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       build_release:
-        description: "Build the unsigned NSIS artifact and provenance placeholders"
+        description: "Build the unsigned NSIS artifact and SHA-256 checksum"
         required: false
         default: false
         type: boolean
@@ -51,31 +51,37 @@ jobs:
       - name: Install JavaScript dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Check JavaScript syntax
+        run: pnpm check
+
       - name: Acquire pinned official Node 24 runtime
         shell: pwsh
         run: .\scripts\acquire-node-runtime.ps1 -ReplaceExisting
 
       - name: Stage deterministic desktop runtime
         shell: pwsh
-        run: pnpm desktop:stage
+        run: .\scripts\stage-desktop-runtime.ps1 -ReplaceExisting
 
-      - name: Run JavaScript syntax and security checks
+      - name: Run post-stage security checks
+        run: pnpm test:security
+
+      - name: Run desktop contract tests
         run: |
-          pnpm check
-          node --check public/desktop-diagnostics.js
-          pnpm test:security
+          pnpm test:desktop-package
+          pnpm test:model-selector-layout
+          pnpm test:desktop-contract
 
       - name: Check repository diff whitespace
         run: git diff --check
-
-      - name: Run desktop contract tests
-        run: pnpm test:desktop-contract
 
       - name: Check Rust formatting
         run: cargo fmt --all --manifest-path src-tauri/Cargo.toml -- --check
 
       - name: Check Rust desktop host
         run: cargo check --manifest-path src-tauri/Cargo.toml
+
+      - name: Check optional autostart feature
+        run: cargo check --manifest-path src-tauri/Cargo.toml --features autostart
 
       - name: Run Rust desktop tests
         run: cargo test --manifest-path src-tauri/Cargo.toml
@@ -113,58 +119,89 @@ jobs:
       - name: Install JavaScript dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Check JavaScript syntax
+        run: pnpm check
+
       - name: Acquire pinned official Node 24 runtime
         shell: pwsh
         run: .\scripts\acquire-node-runtime.ps1 -ReplaceExisting
 
       - name: Stage deterministic desktop runtime
         shell: pwsh
-        run: pnpm desktop:stage
+        run: .\scripts\stage-desktop-runtime.ps1 -ReplaceExisting
 
       - name: Verify the staged runtime security contract
         run: |
           pnpm test:security
+          pnpm test:desktop-package
+          pnpm test:model-selector-layout
           pnpm test:desktop-contract
+
+      - name: Check repository diff whitespace
+        run: git diff --check
+
+      - name: Check Rust formatting
+        run: cargo fmt --all --manifest-path src-tauri/Cargo.toml -- --check
+
+      - name: Check Rust desktop host and optional autostart feature
+        run: |
+          cargo check --manifest-path src-tauri/Cargo.toml
+          cargo check --manifest-path src-tauri/Cargo.toml --features autostart
+
+      - name: Run Rust desktop tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
 
       - name: Build NSIS bundle
         run: pnpm exec tauri build --bundles nsis
 
-      - name: Collect NSIS checksum and SBOM placeholder
+      - name: Collect and verify the NSIS checksum
         shell: pwsh
         run: |
+          function Get-Sha256Hex([string]$Path) {
+            $stream = [IO.File]::OpenRead($Path)
+            try {
+              $sha256 = [Security.Cryptography.SHA256]::Create()
+              try {
+                return ([BitConverter]::ToString($sha256.ComputeHash($stream))).Replace("-", "").ToLowerInvariant()
+              } finally {
+                $sha256.Dispose()
+              }
+            } finally {
+              $stream.Dispose()
+            }
+          }
+
           $bundleDir = Join-Path $env:GITHUB_WORKSPACE "src-tauri\target\release\bundle\nsis"
           $artifactDir = Join-Path $env:GITHUB_WORKSPACE "desktop-release-artifacts"
           New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
-          $nsisFiles = @(Get-ChildItem -LiteralPath $bundleDir -Filter "*.exe" -File -ErrorAction SilentlyContinue)
-          if ($nsisFiles.Count -eq 0) { throw "Tauri did not produce an NSIS executable in $bundleDir" }
+          $nsisFiles = @(Get-ChildItem -LiteralPath $bundleDir -Filter "RWANG_*_x64-setup.exe" -File -ErrorAction SilentlyContinue)
+          if ($nsisFiles.Count -ne 1) {
+            throw "Expected exactly one RWANG_*_x64-setup.exe in $bundleDir; found $($nsisFiles.Count)"
+          }
 
-          $copied = foreach ($file in $nsisFiles) {
-            $destination = Join-Path $artifactDir $file.Name
-            Copy-Item -LiteralPath $file.FullName -Destination $destination -Force -PassThru
+          $sourceInstaller = $nsisFiles[0]
+          $destination = Join-Path $artifactDir $sourceInstaller.Name
+          Copy-Item -LiteralPath $sourceInstaller.FullName -Destination $destination -Force
+          $sourceHash = Get-Sha256Hex $sourceInstaller.FullName
+          $copiedHash = Get-Sha256Hex $destination
+          if ($copiedHash -ne $sourceHash) {
+            throw "Copied NSIS installer SHA-256 does not match the built artifact"
           }
-          $hashLines = foreach ($file in $copied) {
-            $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-            "$hash  $($file.Name)"
-          }
-          $hashLines | Set-Content -LiteralPath (Join-Path $artifactDir "SHA256SUMS.txt") -Encoding utf8
 
-          $sbom = [ordered]@{
-            bomFormat = "CycloneDX-placeholder"
-            specVersion = "1.5"
-            status = "placeholder"
-            reason = "No SBOM generator is configured in this workflow yet."
-            generatedAt = (Get-Date).ToUniversalTime().ToString("o")
-            gitRevision = $env:GITHUB_SHA
-            runtimeStagingMode = "pinned-official-node-v24.20.0"
-            artifacts = @($copied | ForEach-Object { $_.Name })
-            components = @()
+          $checksumLine = "$copiedHash  $($sourceInstaller.Name)"
+          $checksumPath = Join-Path $artifactDir "SHA256SUMS.txt"
+          Set-Content -LiteralPath $checksumPath -Value $checksumLine -Encoding ascii
+          $recordedChecksum = (Get-Content -LiteralPath $checksumPath -Raw).Trim()
+          if ($recordedChecksum -ne $checksumLine) {
+            throw "SHA256SUMS.txt does not exactly match the copied installer"
           }
-          $sbom | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $artifactDir "sbom-placeholder.json") -Encoding utf8
           Write-Warning "No signing secret or signing step is configured. NSIS artifacts are unsigned and must not be treated as production releases."
 
-      - name: Upload NSIS artifact, checksum, and SBOM placeholder
+      - name: Upload NSIS artifact and checksum
         uses: actions/upload-artifact@v4
         with:
           name: RWANG-desktop-${{ github.ref_name }}
-          path: desktop-release-artifacts/*
+          path: |
+            desktop-release-artifacts/RWANG_*_x64-setup.exe
+            desktop-release-artifacts/SHA256SUMS.txt
           if-no-files-found: error

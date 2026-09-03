@@ -222,11 +222,15 @@ git push -u origin main
 
 ## Windows Desktop (Tauri) และ release pipeline
 
-RWANG มี Windows-first Tauri v2 shell ที่คง browser/PWA เป็น fallback เดิมไว้
-เสมอ Desktop host จะ launch Node sidecar บน loopback แบบเลือกพอร์ตชั่วคราว รอ
-JSON `ready` และ `GET /api/health` ก่อนเปิด WebView โดยแยก resource, data,
-workspace และ capability roots ตาม `.env.example` การเปิด
-`/desktop-diagnostics.html` ใช้ตรวจ media parity ใน WebView แบบ local-only
+RWANG มี Windows-first Tauri v2 shell ที่คง browser/PWA สำหรับ source checkout
+ไว้เป็น fallback Desktop host จะ launch Node sidecar บน loopback แบบเลือกพอร์ต
+ชั่วคราว รอ JSON `ready` และ `GET /api/health` ก่อนเปิด WebView โดยแยก
+resource, data, workspace และ capability roots ออกจากกัน Packaged desktop
+ไม่คัดลอกหรืออ่าน `.env` / `.env.*` จาก repository; Tauri กำหนด runtime roots
+และ sidecar รับเฉพาะ process environment ที่ส่งเข้ามา ส่วน `.env` ใช้กับ
+`pnpm start` ใน source checkout เท่านั้น การเปิด
+`/desktop-diagnostics.html` ใช้ตรวจ media parity แบบ on-device/no-telemetry
+บน exact loopback sidecar origin (ไม่ใช่ route access-control boundary)
 และ active camera/microphone/display จะเริ่มได้จากปุ่มผู้ใช้เท่านั้น
 
 คำสั่งตรวจและ build ใน Windows developer shell:
@@ -234,12 +238,16 @@ workspace และ capability roots ตาม `.env.example` การเปิ
 ```powershell
 pnpm install --frozen-lockfile
 pnpm check
-pnpm test:security
-pnpm test:desktop-contract
 pnpm desktop:runtime
 pnpm desktop:stage
+pnpm test:security
+pnpm test:desktop-package
+pnpm test:model-selector-layout
+pnpm test:desktop-contract
+git diff --check
 cargo fmt --all --manifest-path src-tauri/Cargo.toml -- --check
 cargo check --manifest-path src-tauri/Cargo.toml
+cargo check --manifest-path src-tauri/Cargo.toml --features autostart
 cargo test --manifest-path src-tauri/Cargo.toml
 pnpm exec tauri build --no-bundle       # PR/source gate
 pnpm exec tauri build --bundles nsis    # local unsigned installer
@@ -248,8 +256,8 @@ pnpm exec tauri build --bundles nsis    # local unsigned installer
 `.github/workflows/desktop.yml` รันชุดตรวจเดียวกันบน `windows-latest` ด้วย
 Node v24.20.0, pnpm 11 และ Rust MSVC ทุก pull request/main push; การ push tag `v*`
 หรือกด workflow dispatch พร้อม `build_release=true` จะตรวจ archive/Node SHA256
-และ LICENSE แล้วสร้าง NSIS artifact,
-`SHA256SUMS.txt` และ `sbom-placeholder.json` เป็น workflow artifact เท่านั้น
+และ LICENSE แล้วสร้าง NSIS artifact พร้อม `SHA256SUMS.txt` เป็น workflow
+artifact
 ไม่มีขั้นตอน auto-publish, auto-push หรือสร้าง GitHub Release ให้ตรวจและ
 ดาวน์โหลดด้วยตนเองก่อนเสมอ Tauri resource map ชี้เฉพาะ
 `desktop/stage/rwang`; pipeline จะไม่ copy Node จาก PATH เป็น fallback
@@ -257,13 +265,16 @@ Node v24.20.0, pnpm 11 และ Rust MSVC ทุก pull request/main push; ก
 
 คำเตือน: installer จาก workflow นี้ยัง unsigned เพราะ repository ยังไม่ได้
 ตั้ง signing secret/ใบรับรอง จึงอาจแสดง SmartScreen warning และยังไม่ใช่
-production release ควรทดสอบใน VM/เครื่องสะอาด ตรวจ checksum และเซ็นด้วย
+production release ขั้น CI ปัจจุบันเป็น build gate บนเครื่องที่มี developer
+toolchain ไม่ใช่ clean-machine gate ต้องทดสอบ installer ด้วยตนเองใน Windows 11
+x64 VM และ Windows 10 x64 VM รุ่นที่ประกาศรองรับ ตรวจ checksum และเซ็นด้วย
 กระบวนการ release ที่อนุมัติก่อนแจกจ่ายจริง
 
 Rollback ทำได้โดยเก็บ desktop data root
 `%LOCALAPPDATA%\com.freshair129.rwang\data` ไว้ ไม่ลบ config/queue ตอนถอน
 installer แล้วติดตั้ง installer รุ่นก่อนหน้า ส่วน browser/PWA ยังคงใช้ state แยก
-ที่ `%LOCALAPPDATA%\RWANG\data` และ fallback ผ่าน `pnpm start` /
-`Start RWANG.cmd` ได้ทันที หาก desktop เปิดไม่ได้ให้ใช้ browser ต่อจนกว่าจะตรวจ
-runtime, media และ installer ใหม่ผ่าน; ระบบยังไม่มี auto-update หรือการ publish
+ที่ `%LOCALAPPDATA%\RWANG\data` สำหรับเครื่อง developer ที่มี source checkout
+สามารถ fallback ผ่าน `pnpm start` / `Start RWANG.cmd` ได้ ผู้ใช้ที่มีเพียง
+packaged app ต้อง rollback ด้วย installer รุ่นก่อนหน้า ไม่ควรถือว่ามี pnpm หรือ
+source tree อยู่ในเครื่อง ระบบยังไม่มี auto-update, auto-rollback หรือการ publish
 อัตโนมัติในขั้นตอนนี้

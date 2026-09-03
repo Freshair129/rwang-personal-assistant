@@ -1,10 +1,11 @@
 /*
  * RWANG desktop media-parity diagnostics.
  *
- * This page is deliberately local-only. Capability checks read browser
- * properties and same-origin asset headers. Camera, microphone, and display
- * capture are only requested from the explicit user-button handlers below.
- * Every obtained MediaStream is stopped before the result is rendered.
+ * This page is an on-device, no-telemetry diagnostic rather than a route
+ * access-control boundary. Capability checks read browser properties and
+ * same-origin asset headers. Camera, microphone, and display capture are only
+ * requested from the explicit user-button handlers below. Every obtained
+ * MediaStream is stopped before the result is rendered.
  */
 
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);

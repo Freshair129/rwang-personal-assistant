@@ -12,10 +12,6 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
-# Windows PowerShell launched by a Node child process may have module
-# auto-loading disabled. Import the built-in utility module explicitly so the
-# SHA-256 verification path is identical in local tests and CI.
-Import-Module Microsoft.PowerShell.Utility -ErrorAction Stop
 
 # This script has one output location by design. Do not add a general
 # destination parameter: a release build must not accidentally copy resources
@@ -27,6 +23,20 @@ $runtimeRoot = [IO.Path]::GetFullPath((Join-Path $stageRoot "rwang"))
 
 function Normalize-PathString([string]$Path) {
     return ([IO.Path]::GetFullPath($Path)).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+}
+
+function Get-Sha256Hex([string]$Path) {
+    $stream = [IO.File]::OpenRead($Path)
+    try {
+        $sha256 = [Security.Cryptography.SHA256]::Create()
+        try {
+            return ([BitConverter]::ToString($sha256.ComputeHash($stream))).Replace("-", "").ToLowerInvariant()
+        } finally {
+            $sha256.Dispose()
+        }
+    } finally {
+        $stream.Dispose()
+    }
 }
 
 function Assert-StagingPath([string]$Path, [switch]$AllowStageRoot) {
@@ -218,7 +228,7 @@ function Assert-Sha256([string]$Path, [string]$Expected, [string]$Label) {
     if ($Expected -notmatch '^[0-9a-fA-F]{64}$') {
         throw "$Label expected SHA-256 is not a 64-character hexadecimal value"
     }
-    $actual = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+    $actual = Get-Sha256Hex $Path
     if ($actual -ne $Expected.ToLowerInvariant()) {
         throw "$Label SHA-256 mismatch: expected $($Expected.ToLowerInvariant()), got $actual"
     }
@@ -317,7 +327,7 @@ function Get-RuntimeManifestFiles([string]$Root) {
         # runs under inbox Windows PowerShell 5.1 (.NET Framework).
         $relative = $file.FullName.Substring(($rootPath + [IO.Path]::DirectorySeparatorChar).Length).Replace("\", "/")
         if ($relative -eq "runtime-manifest.json") { continue }
-        $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        $hash = Get-Sha256Hex $file.FullName
         $manifest.Add([ordered]@{
                 path = $relative
                 bytes = [int64]$file.Length
@@ -365,6 +375,13 @@ function Assert-RequiredRuntime([string]$Root) {
         if (Test-Path -LiteralPath (Join-Path $Root ($forbiddenMetadata -replace "/", "\"))) {
             throw "Staged runtime contains pnpm install-only metadata: $forbiddenMetadata"
         }
+    }
+
+    $secretEnvironmentFiles = @(Get-ChildItem -LiteralPath $Root -File -Force -Recurse | Where-Object {
+            $_.Name -eq ".env" -or $_.Name.StartsWith(".env.", [StringComparison]::OrdinalIgnoreCase)
+        })
+    if ($secretEnvironmentFiles.Count -gt 0) {
+        throw "Staged runtime contains $($secretEnvironmentFiles.Count) forbidden .env secret file(s)"
     }
 
     $reparse = @(Get-ChildItem -LiteralPath $Root -Force -Recurse | Where-Object {

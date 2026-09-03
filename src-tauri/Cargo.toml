@@ -8,7 +8,13 @@ rust-version = "1.77.2"
 build = "build.rs"
 
 [build-dependencies]
+ico = "0.5"
+png = "0.17"
 tauri-build = { version = "2", features = [] }
+
+[dev-dependencies]
+ico = "0.5"
+png = "0.17"
 
 [features]
 default = []

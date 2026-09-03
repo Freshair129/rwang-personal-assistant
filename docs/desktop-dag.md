@@ -1,3 +1,17 @@
+---
+version: "0.1.0b"
+created_at: "2026-09-03T02:33:20+07:00,Freshair129,3a6657caf0519f54b8bee05658f3047856e64b65"
+last_update: "2026-09-04T05:34:37+07:00,RWANG"
+status: "beta"
+superseded_by: null
+attributes:
+  domain: "desktop-architecture"
+  scope: "migration-dag"
+  doc_type: "core-directive"
+  language: "en"
+  change_risk: "MEDIUM"
+---
+
 # RWANG Desktop migration DAG
 
 This workflow migrates RWANG to a Windows-first Tauri v2 desktop application
@@ -11,6 +25,8 @@ gate for the current wave is green.
 - Workers: `gpt-5.6-luna` with reasoning effort `max`.
 - Parallelism: tasks in the same wave must own disjoint files where possible.
 - Baseline gate on every wave: `pnpm check`, `pnpm test:security`, and `git diff --check`.
+- A desktop artifact gate acquires and stages the pinned runtime before running
+  `pnpm test:security` and `pnpm test:desktop-contract`.
 - A failing gate stops downstream nodes; the coordinator fixes or reverts only the
   failing slice before resuming the DAG.
 - Browser/PWA mode remains a supported rollback path until Desktop Stable.
@@ -59,9 +75,9 @@ flowchart LR
 | 0 | Architecture, sidecar packaging spike, Windows toolchain audit | Architecture and process contract accepted; baseline tests green |
 | 1 | Runtime path separation, Tauri shell, contract tests | Tauri compiles; sidecar reports ready; health and data isolation pass |
 | 2 | Process hardening, native Spotlight boundary, media parity harness | No orphan child; navigation/IPC policy passes; media results recorded |
-| 3 | Native UX, portable runtime/NSIS, Windows CI | Clean-machine artifact builds and launches without developer tools |
-| 4 | E2E, security regression, upgrade/uninstall/rollback | All acceptance criteria pass on Windows 11 and supported Windows 10 |
-| 5 | Documentation, checksums/SBOM, GitHub release candidate | Desktop Alpha is reproducible and browser fallback remains available |
+| 3 | Native UX, portable runtime/NSIS, Windows CI | Hosted Windows source/build gates pass; this is not clean-machine evidence |
+| 4 | E2E, security regression, upgrade/uninstall/rollback | Manual Windows 11 and declared-minimum Windows 10 VM evidence is recorded; pending until that evidence exists |
+| 5 | Documentation, checksum, GitHub release candidate | Desktop Alpha is reproducible and source-checkout browser fallback remains available |
 
 ## Wave 1 sidecar contract
 
@@ -74,10 +90,11 @@ Required environment:
 ```text
 RWANG_RESOURCE_DIR=<absolute read-only runtime directory>
 RWANG_DATA_DIR=<absolute writable application-data directory>
-RWANG_WORKSPACE_DIR=<absolute user-approved workspace directory>
+RWANG_WORKSPACE_DIR=<absolute host-resolved workspace: app-owned default or explicit operator override>
 RWANG_CAPABILITY_DIR=<absolute capability-pack directory>
 RWANG_HOST=127.0.0.1
 OLLAMA_CENTER_PORT=<coordinator-selected free port>
+RWANG_DESKTOP_NONCE=<host-generated 32-byte secret encoded as lowercase hex>
 ```
 
 The sidecar emits one JSON `ready` event after the listener is accepting
@@ -91,9 +108,33 @@ the URL or command line.
   path defaults preserve the existing source-tree behavior.
 - Wave 2: disable native capability nodes independently; retain the existing
   loopback Spotlight and browser media implementation.
-- Wave 3: publish a portable Alpha artifact before enabling installer upgrades.
-- Wave 4/5: an installer failure must not delete `%APPDATA%\RWANG`; reinstalling
-  the previous signed version must restore operation with the same user data.
+- Wave 3: retain the unsigned NSIS artifact only as a release candidate until
+  clean-machine checks and signing are complete.
+- Wave 4/5: back up `%LOCALAPPDATA%\com.freshair129.rwang\data`, retain that
+  directory during uninstall, and reinstall the last-known-good signed version.
+  `%LOCALAPPDATA%\RWANG\data` is separate browser/source state and must not be
+  deleted as part of desktop rollback.
+
+The hosted `windows-latest` workflow has developer tooling and therefore does
+not satisfy Wave 4. A manual Windows 11 x64 VM gate and a manual Windows 10 x64
+VM gate on the minimum explicitly supported build must verify checksum,
+install, launch, sidecar shutdown, upgrade, uninstall data retention, and
+rollback. `pnpm start` / `Start RWANG.cmd` is a fallback only on a machine that
+already has the source checkout; an installed consumer machine uses the
+last-known-good installer.
 
 Auto-update, full Rust backend rewriting, macOS/Linux packaging, and content-level
 file indexing are outside the Desktop Alpha DAG.
+
+## Version Diff
+
+| From | To | Change |
+|---|---|---|
+| Unversioned | 0.1.0b | Correct release-wave status, data roots, VM evidence, and rollback scope |
+| Product 0.5.0 | Product 0.5.0 | Architecture documentation correction only; no product version bump |
+
+## CHANGELOG
+
+| Version | Date | Status | Summary | Commit Hash | Agent |
+|---|---|---|---|---|---|
+| 0.1.0b | 2026-09-04 | beta | Align DAG release gates and rollback claims with verified implementation status | uncommitted | RWANG |

@@ -4,6 +4,7 @@ use hmac::{Hmac, Mac};
 use serde_json::Value;
 use sha2::Sha256;
 use std::error::Error;
+use std::ffi::OsString;
 use std::fmt::{Display, Formatter};
 use std::fs::create_dir_all;
 use std::io::{self, BufRead, BufReader, Read, Write};
@@ -23,7 +24,6 @@ use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder, Wind
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
-#[allow(dead_code)]
 mod spotlight_bridge;
 
 const DEFAULT_READY_TIMEOUT: Duration = Duration::from_secs(30);
@@ -201,23 +201,16 @@ fn resolve_roots(
     // Desktop mutable state is intentionally isolated from the browser/PWA
     // data root.  Both can run at once, so sharing queue/config files would
     // introduce cross-process write races.
-    let data_dir = make_absolute(app.path().app_local_data_dir()?.join("data"));
+    let application_root = make_absolute(app.path().app_local_data_dir()?);
+    let data_dir = application_root.join("data");
     create_dir_all(&data_dir)?;
 
-    let workspace_dir = std::env::var_os("RWANG_WORKSPACE_DIR")
-        .map(PathBuf::from)
-        .filter(|path| path.is_absolute())
-        .map(make_absolute)
-        .unwrap_or_else(|| {
-            if development {
-                fallback_workspace_root.to_path_buf()
-            } else {
-                app.path()
-                    .document_dir()
-                    .map(make_absolute)
-                    .unwrap_or_else(|_| fallback_workspace_root.to_path_buf())
-            }
-        });
+    let workspace_dir = resolve_workspace_dir(
+        std::env::var_os("RWANG_WORKSPACE_DIR"),
+        &application_root,
+        fallback_workspace_root,
+        development,
+    )?;
 
     // In a source checkout capabilities live at the repository root.  A
     // packaged resource uses the same relative path below its rwang root.
@@ -236,6 +229,43 @@ fn resolve_roots(
         workspace_dir,
         capability_dir,
     })
+}
+
+fn resolve_workspace_dir(
+    configured: Option<OsString>,
+    application_root: &Path,
+    development_root: &Path,
+    development: bool,
+) -> HostResult<PathBuf> {
+    if let Some(value) = configured.filter(|value| !value.is_empty()) {
+        let workspace_dir = PathBuf::from(value);
+        if !workspace_dir.is_absolute() {
+            return Err(Box::new(HostError::new(
+                "RWANG_WORKSPACE_DIR must be an absolute existing directory",
+            )));
+        }
+        let workspace_dir = make_absolute(workspace_dir);
+        if !workspace_dir.is_dir() {
+            return Err(Box::new(HostError::new(format!(
+                "RWANG_WORKSPACE_DIR does not exist or is not a directory: {}",
+                workspace_dir.display()
+            ))));
+        }
+        return Ok(workspace_dir);
+    }
+
+    if development {
+        return Ok(development_root.to_path_buf());
+    }
+
+    // A packaged build must not silently expose Documents (or any other
+    // personal directory) to workspace-scoped agent tools. Until a reviewed
+    // folder picker exists, the safe default is an empty app-owned sibling of
+    // the mutable data directory. An explicit absolute environment override is
+    // the consent boundary for selecting another workspace.
+    let workspace_dir = application_root.join("workspace");
+    create_dir_all(&workspace_dir)?;
+    Ok(workspace_dir)
 }
 
 struct RuntimeState {
@@ -928,7 +958,8 @@ fn is_allowed_navigation(url: &url::Url, port: u16) -> bool {
     // Keep the webview on the exact sidecar origin.  Requiring an explicit
     // port and rejecting user-info prevents lookalike or credential-bearing
     // URLs from passing a host-only check.
-    url.scheme() == "http"
+    port != 0
+        && url.scheme() == "http"
         && url.host_str() == Some("127.0.0.1")
         && url.port() == Some(port)
         && url.username().is_empty()
@@ -995,6 +1026,10 @@ fn force_kill_process_tree(child: &mut Child) {
 mod tests {
     use super::*;
 
+    fn parsed_url(value: &str) -> url::Url {
+        url::Url::parse(value).expect("test URL must parse")
+    }
+
     #[test]
     fn desktop_nonce_is_32_bytes_of_lowercase_hex() {
         let nonce = generate_desktop_nonce().expect("OS randomness should be available");
@@ -1002,6 +1037,104 @@ mod tests {
         assert!(nonce
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)));
+    }
+
+    #[test]
+    fn navigation_accepts_only_the_selected_loopback_origin() {
+        let port = 43127;
+        for value in [
+            "http://127.0.0.1:43127/",
+            "http://127.0.0.1:43127/desktop-diagnostics.html",
+            "http://127.0.0.1:43127/?view=assistant#spotlight",
+            "http://127.0.0.1:43127/api/health",
+        ] {
+            assert!(
+                is_allowed_navigation(&parsed_url(value), port),
+                "expected same-origin navigation to be allowed: {value}"
+            );
+        }
+        for value in [
+            "https://127.0.0.1:43127/",
+            "http://localhost:43127/",
+            "http://127.0.0.1:43128/",
+            "http://127.0.0.1.evil.example:43127/",
+            "http://user:pass@127.0.0.1:43127/",
+        ] {
+            assert!(
+                !is_allowed_navigation(&parsed_url(value), port),
+                "unexpectedly allowed navigation: {value}"
+            );
+        }
+        assert!(!is_allowed_navigation(
+            &parsed_url("http://127.0.0.1:43127/"),
+            0
+        ));
+    }
+
+    #[test]
+    fn packaged_workspace_defaults_to_an_app_owned_sibling() {
+        let base = std::env::temp_dir().join(format!(
+            "rwang-workspace-contract-{}-{}",
+            std::process::id(),
+            generate_desktop_nonce().expect("nonce creates a unique test suffix")
+        ));
+        let application_root = base.join("com.freshair129.rwang");
+        let development_root = base.join("source");
+        create_dir_all(&application_root).expect("application root should be creatable");
+
+        let workspace = resolve_workspace_dir(None, &application_root, &development_root, false)
+            .expect("packaged safe workspace should resolve");
+        assert_eq!(workspace, application_root.join("workspace"));
+        assert!(workspace.is_dir());
+        assert_ne!(workspace, application_root.join("data"));
+
+        std::fs::remove_dir_all(&base).expect("test workspace should be removable");
+    }
+
+    #[test]
+    fn workspace_override_must_be_absolute_and_existing() {
+        let base = std::env::temp_dir().join(format!(
+            "rwang-workspace-override-{}-{}",
+            std::process::id(),
+            generate_desktop_nonce().expect("nonce creates a unique test suffix")
+        ));
+        let application_root = base.join("application");
+        let development_root = base.join("source");
+        let explicit_workspace = base.join("approved-workspace");
+        create_dir_all(&application_root).expect("application root should be creatable");
+        create_dir_all(&explicit_workspace).expect("explicit workspace should be creatable");
+
+        assert_eq!(
+            resolve_workspace_dir(
+                Some(explicit_workspace.clone().into_os_string()),
+                &application_root,
+                &development_root,
+                false,
+            )
+            .expect("absolute existing workspace should be accepted"),
+            explicit_workspace
+        );
+        assert!(resolve_workspace_dir(
+            Some(OsString::from("relative-workspace")),
+            &application_root,
+            &development_root,
+            false,
+        )
+        .is_err());
+        assert!(resolve_workspace_dir(
+            Some(base.join("missing-workspace").into_os_string()),
+            &application_root,
+            &development_root,
+            false,
+        )
+        .is_err());
+        assert_eq!(
+            resolve_workspace_dir(None, &application_root, &development_root, true)
+                .expect("development checkout should remain the workspace"),
+            development_root
+        );
+
+        std::fs::remove_dir_all(&base).expect("test workspace should be removable");
     }
 
     #[test]

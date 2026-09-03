@@ -1,75 +1,78 @@
+---
+version: "0.2.0b"
+created_at: "2026-09-03T02:33:20+07:00,RWANG,3a6657caf0519f54b8bee05658f3047856e64b65"
+last_update: "2026-09-04T05:28:01+07:00,RWANG"
+status: "beta"
+superseded_by: null
+attributes:
+  domain: "desktop-security"
+  scope: "Spotlight host bridge and navigation"
+  doc_type: "core-directive"
+  target_product_version: "0.5.0"
+---
+
 # Desktop Alpha Spotlight native boundary
 
-Status: **host-only shortcut/eval bridge; full native index port deferred**.
+Status: **host-only focus bridge; the full native index port is deferred**.
 
-`src-tauri/src/spotlight_bridge.rs` is intentionally a small Rust boundary. It
-does not import filesystem or process APIs and it does not receive a path or a
-Spotlight opaque result id. The existing `spotlight.mjs` index remains the
-canonical implementation for root validation, hidden/dependency exclusions,
-reparse-point rejection, identity checks, launch policy, and the local-only
-HTTP API.
+## Current architecture
 
-The bridge only supports these exact commands:
+`spotlight.mjs` is the single authoritative implementation for the filename
+index, canonical root validation, hidden/dependency exclusions, reparse-point
+rejection, opaque result IDs, stale identity checks, openable-extension policy,
+launch rate limiting, and safe OS launching.
 
-- `focus`: show the `main` window, focus it, and open the existing
-  `#spotlightDialog`.
-- `search`: open the dialog and dispatch an `input` event with a bounded,
-  JSON-encoded query.
-- `close`: close the existing dialog.
+`src-tauri/src/spotlight_bridge.rs` performs one fixed UI operation: restore,
+show, and focus the existing `main` window, then click the existing
+`#spotlightButton`. The canonical `openSpotlight()` handler in `public/app.js`
+continues to own the local-access and Settings guards, stale-state reset,
+empty-state render, status refresh, dialog open, and input focus. The host script
+contains no dynamic query, path, result ID, or arbitrary frontend input.
 
-There is no native `open`, `reveal`, `reindex`, shell, or filesystem command.
-Those operations continue to go through the already-reviewed Node endpoint and
-its opaque result-id validation. The Tauri capability therefore remains
-`core:default`; do not add `tauri-plugin-shell` or `tauri-plugin-fs` for this
-slice.
+The bridge is not a Tauri command and is not registered through
+`invoke_handler`. The WebView receives no native Spotlight IPC, shell, or
+filesystem capability. Search, reindex, and safe opening remain behind the
+reviewed Node HTTP endpoints and their existing authorization and opaque-ID
+checks.
+
+## Entry points
+
+- `Ctrl+Shift+Space` is the current Windows desktop global shortcut. A pressed
+  event calls the Rust focus helper directly. If another application owns the
+  shortcut, RWANG logs a warning and continues running.
+- The tray **Spotlight** item calls the same host helper.
+- The browser/PWA shortcut remains `Ctrl/Cmd+K` and uses the existing frontend
+  behavior.
+
+The global-shortcut plugin is host-side infrastructure. It does not add a
+permission to `src-tauri/capabilities/default.json` and must not be used to
+accept a path, shell command, or arbitrary script.
+
+## Navigation boundary
+
+`main.rs` owns the only WebView navigation policy. It permits navigation on
+the exact selected sidecar origin:
+
+```text
+http://127.0.0.1:<selected-port>
+```
+
+Same-origin application paths, queries, and fragments are allowed so the main
+UI, diagnostics page, API routes, and hash navigation continue to work. HTTPS,
+`localhost`, another port, user-info, and lookalike hosts are rejected. New
+window creation is always denied. Path-level authorization remains a server
+responsibility; the host origin gate is not an API authorization mechanism.
+
+Do not add a second Spotlight-specific URL helper. Multiple URL policies would
+allow documentation and production behavior to drift.
 
 ## Why the full index port is deferred
 
-Moving the index now would duplicate security-sensitive behavior that already
-lives in `spotlight.mjs`. In particular, a Rust port would need parity for
-canonical roots, Windows reparse/symlink handling, stale file identity,
-openable-extension policy, launch rate limiting, and safe Explorer launching.
-Until those behaviors have shared parity tests, two indexes would create drift
-and make it unclear which result is authoritative. Desktop Alpha therefore
-keeps one Node index and uses Rust only as a UI entry point. The rationale is
-also returned in the bridge response through `fullIndexPortRationale` so that a
-future migration cannot silently become the default.
-
-## Coordinator integration (after the lifecycle worker is ready)
-
-Do not copy this into `main.rs` until the sidecar/window lifecycle patch is
-stable. The intended wiring is:
-
-```rust
-mod spotlight_bridge;
-
-let app = tauri::Builder::default()
-    // ... existing single-instance and setup configuration ...
-    .invoke_handler(tauri::generate_handler![
-        spotlight_bridge::spotlight_command,
-    ])
-    // ... build/run ...
-```
-
-For the existing local sidecar URL gate, call the helper from the navigation
-callback with the selected ephemeral port:
-
-```rust
-.on_navigation(move |url| spotlight_bridge::is_allowed_spotlight_url(url, port))
-```
-
-The Rust host can trigger a native shortcut without exposing another webview
-capability:
-
-```rust
-if let Some(window) = app.get_webview_window(spotlight_bridge::MAIN_WINDOW_LABEL) {
-    spotlight_bridge::focus_spotlight_window(&window)?;
-}
-```
-
-The current browser/PWA shortcut (`Ctrl/Cmd-K`) remains unchanged. A future
-global shortcut plugin, if added, should call `focus_spotlight_window` and must
-be reviewed separately; it is not required for this bridge slice.
+A Rust index would need shared parity tests for canonical roots, Windows
+reparse/symlink behavior, stale identity, openable extensions, launch rate
+limits, and safe Explorer launching. Until those tests exist, a second index
+would create two security authorities. Desktop Alpha therefore keeps Node as
+the sole index/opener and Rust as a fixed focus entry point.
 
 ## Acceptance gates
 
@@ -77,13 +80,33 @@ From the repository root:
 
 ```powershell
 cargo test --manifest-path src-tauri/Cargo.toml --test spotlight_bridge
+cargo test --manifest-path src-tauri/Cargo.toml
+node tests/tauri-contract.mjs
 pnpm check
 pnpm test:security
 git diff --check
 ```
 
-The Rust tests must reject alternate ports, `localhost`, HTTPS, user-info,
-query/fragment-bearing URLs, API paths, and commands such as `open`, `reveal`,
-`reindex`, `shell`, and `fs`. A follow-up Windows E2E gate must verify that the
-native shortcut opens the same Spotlight dialog, while file search/open remains
-local-only through the Node API.
+The gates must prove that:
+
+- no WebView `invoke_handler`, shell, or filesystem capability exists;
+- the focus script contains no transport, navigation, direct dialog operation,
+  or dynamic input and enters the canonical `openSpotlight()` button handler;
+- the global shortcut and tray call the same host focus helper;
+- same-origin paths/query/fragments are accepted while wrong scheme, host,
+  port, user-info, and new windows are rejected; and
+- the Node Spotlight security suite remains authoritative for search and open.
+
+## VERSION DIFF
+
+| From | To | Change |
+|---|---|---|
+| 0.1.0b beta | 0.2.0b beta | Replaced the proposed IPC/path-scoped design with the implemented host-only focus bridge and exact-origin navigation contract |
+| Product 0.5.0 | Product 0.5.0 | No product version change |
+
+## CHANGELOG
+
+| Version | Date | Status | Summary | Commit Hash | Agent |
+|---|---|---|---|---|---|
+| 0.1.0b | 2026-09-03 | beta | Initial Desktop Alpha Spotlight bridge proposal | 3a6657c | RWANG |
+| 0.2.0b | 2026-09-04 | beta | Document host-only focus, current shortcut, and one exact-origin navigation policy | uncommitted | RWANG |
