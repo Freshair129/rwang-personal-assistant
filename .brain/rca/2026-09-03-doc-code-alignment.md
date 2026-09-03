@@ -1,9 +1,9 @@
 ---
-version: "0.1.1b"
-doc_version: "0.1.1"
+version: "0.1.2b"
+doc_version: "0.1.2"
 doc_status: "approved"
 created_at: "2026-09-03T21:01:52+07:00,RWANG,3a6657caf0519f54b8bee05658f3047856e64b65"
-last_update: "2026-09-04T06:57:00+07:00,RWANG"
+last_update: "2026-09-04T07:18:00+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -14,7 +14,7 @@ attributes:
   language: "th-TH"
   change_risk: "HIGH"
   baseline_commit: "3a6657caf0519f54b8bee05658f3047856e64b65"
-  implementation_commit: "a82635f23c66e3236bdc3b4a0cc1c92f2cb703e2"
+  implementation_commit: "d19ed000c5f96aa8ceb4d38c65052ac009cb68c4"
 ---
 
 # RCA and Remediation Specification — Documentation/Code Alignment
@@ -58,6 +58,11 @@ data path, release artifact และ persona behavior ไม่ตรงกั�
 หลัง Document Intelligence ผ่าน hosted Windows gate แล้ว run `33818622277`
 ล้มที่ Spotlight launcher assertion เพราะ expected path เป็น Windows 8.3 alias
 `RUNNER~1` แต่ implementation คืน canonical long path `runneradmin`
+
+หลังแก้ Spotlight แล้ว run `33819340761` ผ่าน Document Intelligence,
+Spotlight, security smoke และ remote security แต่ backend overlap test คืน
+`INVALID_CAPABILITY_DIR` แทน `INVALID_DATA_DIR` เมื่อ prospective data path ยัง
+เป็น short alias ขณะที่ resource root canonicalize เป็น long pathแล้ว
 
 ## 4. Evidence
 
@@ -118,6 +123,10 @@ data path, release artifact และ persona behavior ไม่ตรงกั�
 11. Windows run `33818622277` ผ่าน Document Intelligence suite แล้วล้มที่
     `tests/spotlight-security.mjs:160`; actual/expected ต่างเฉพาะ canonical long
     path กับ 8.3 short-path alias ของไฟล์เดียวกัน
+12. Windows run `33819340761` ผ่านสี่ security suites แรกแล้วล้มที่
+    `backend-hardening.mjs:230`; `nestedData` ยังไม่ถูกสร้างและใช้ short-path
+    parent แต่ `resourceRoot` ถูก `realpath` เป็น long path ทำให้ pre-create
+    overlap comparison พลาดและ flow ไปถึง missing default capability directory
 
 ### 4.4 Documentation governance
 
@@ -144,6 +153,8 @@ Rust host, Node sidecar, UI และ release workflow:
 5. Spotlight fixture เปรียบ raw `mkdtemp` path กับ canonical path ที่ index เก็บ
    หลัง `realpath`; hosted Windows คืน TEMP เป็น 8.3 alias จึงเกิด false
    negative โดยไม่กระทบ containment, file identity หรือ launcher boundary
+6. backend pre-create overlap guard เปรียบ canonical existing root กับ raw
+   prospective path; alias ต่างกันทำให้ containment false negative ก่อน mkdir
 
 ## 6. Why the issue escaped detection
 
@@ -155,6 +166,8 @@ Rust host, Node sidecar, UI และ release workflow:
 - placeholder artifact ถูกติดป้ายตรงไปตรงมา แต่ไม่มี release-scope prohibition test
 - local TEMP ใช้ long path อยู่แล้ว จึงไม่ execute short/long alias case ที่
   hosted runner เปิดเผย
+- test เดิมครอบคลุม nested data side-effect แต่ local path spelling เหมือนกัน
+  ทั้งสองฝั่ง จึงไม่เปิดเผย canonical/raw mismatch
 
 ## 7. Normative remediation decisions (implemented)
 
@@ -241,6 +254,9 @@ tauri build
 - `pnpm start` เท่านั้นที่โหลด repo `.env`; packaged desktop ไม่อ่าน/ไม่ bundle
   `.env` และ host เป็นเจ้าของ resource/data/capability/host/port/nonce
 - settings UI/native folder picker อยู่นอก patch นี้
+- ก่อนสร้าง `DATA_DIR` ให้ resolve nearest existing ancestor เป็น canonical path
+  แล้วต่อ suffix ที่ยังไม่มีเพื่อทำ overlap check กับ canonical resource/workspace;
+  path alias ต้องไม่เปลี่ยน error codeหรือสร้าง directory ก่อน rejection
 
 ### D7 — Accurate lifecycle, diagnostics and optional features
 
@@ -380,7 +396,7 @@ code signing ต้องมีหลักฐานแยกก่อนเล�
 
 | Artifact | From | To after implementation | Change |
 |---|---|---|---|
-| Alignment RCA/spec | none | `0.1.1b` beta | เพิ่ม Windows short/long path alias RCA ใน Spotlight fixture |
+| Alignment RCA/spec | none | `0.1.2b` beta | เพิ่ม prospective DATA_DIR alias RCA และ pre-create canonical guard |
 | Persona PRD | `0.2.1b` beta | `0.2.2b` beta | prompt/test traceability, readable disclosure, commit evidence |
 | pnpm staging RCA | `0.1.0b` beta | `0.2.7b` beta | `.bin`, shell/hash, scanner traversal และ hosted phase evidence |
 | Desktop DAG | unversioned | `0.1.0b` beta | truthful wave/manual status, paths and rollback |
@@ -399,3 +415,4 @@ code signing ต้องมีหลักฐานแยกก่อนเล�
 | 0.1.0b | 2026-09-03 | candidate | เสนอ cross-layer remediation สำหรับ CI, release, persona, Spotlight, lifecycle และ docs | ba1200d | RWANG |
 | 0.1.0b | 2026-09-04 | beta | Boss อนุมัติสเปกและ implementation ผ่าน local automated gates; รอ fresh PR CI/manual evidence ตามขอบเขต | ba1200d | RWANG |
 | 0.1.1b | 2026-09-04 | beta | Windows CI ผ่าน scanner gateและพบ Spotlight short/long path alias; กำหนด canonical expected identity | a82635f | RWANG |
+| 0.1.2b | 2026-09-04 | beta | hosted backend test พบ canonical/raw prospective path mismatch; กำหนด nearest-ancestor canonicalization | d19ed00 | RWANG |

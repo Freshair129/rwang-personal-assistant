@@ -345,6 +345,32 @@ function normalizeCorePath(name, supplied) {
   return path.resolve(supplied.trim());
 }
 
+async function canonicalizeProspectiveDirectory(name, requested) {
+  const missingSegments = [];
+  let current = requested;
+  while (true) {
+    try {
+      const canonicalAncestor = await realpath(current);
+      const ancestorStats = await lstat(canonicalAncestor);
+      if (!ancestorStats.isDirectory() || ancestorStats.isSymbolicLink()) {
+        throw corePathError(`INVALID_${name}`, `${name} must descend from a directory`);
+      }
+      return path.join(canonicalAncestor, ...missingSegments.reverse());
+    } catch (error) {
+      if (error?.code !== "ENOENT") {
+        if (error?.code === `INVALID_${name}`) throw error;
+        throw corePathError(`INVALID_${name}`, `${name} is unavailable or inaccessible`);
+      }
+      const parent = path.dirname(current);
+      if (parent === current) {
+        throw corePathError(`INVALID_${name}`, `${name} has no accessible ancestor`);
+      }
+      missingSegments.push(path.basename(current));
+      current = parent;
+    }
+  }
+}
+
 async function resolveCoreDirectory(name, supplied, { create = false } = {}) {
   const requested = normalizeCorePath(name, supplied);
   try {
@@ -478,12 +504,13 @@ export async function createRwangCore({
     ? await resolveCoreDirectory("RESOURCE_DIR", resourceDir)
     : null;
   const requestedDataPath = normalizeCorePath("DATA_DIR", dataDir || rootDir || workspaceRoot);
+  const prospectiveDataPath = await canonicalizeProspectiveDirectory("DATA_DIR", requestedDataPath);
   const legacySingleRoot = !dataDir && !workspaceDir && !resourceDir;
   if (!legacySingleRoot) {
-    if (resourceRoot && (isContainedPath(resourceRoot, requestedDataPath) || isContainedPath(requestedDataPath, resourceRoot))) {
+    if (resourceRoot && (isContainedPath(resourceRoot, prospectiveDataPath) || isContainedPath(prospectiveDataPath, resourceRoot))) {
       throw corePathError("INVALID_DATA_DIR", "DATA_DIR must be separate from RESOURCE_DIR");
     }
-    if (isContainedPath(workspaceRoot, requestedDataPath) || isContainedPath(requestedDataPath, workspaceRoot)) {
+    if (isContainedPath(workspaceRoot, prospectiveDataPath) || isContainedPath(prospectiveDataPath, workspaceRoot)) {
       throw corePathError("INVALID_DATA_DIR", "DATA_DIR must be separate from WORKSPACE_DIR");
     }
   }
