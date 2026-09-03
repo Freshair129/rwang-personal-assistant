@@ -17,6 +17,8 @@ directory enumeration skips exact ignored-directory names and reparse points
 before recursion. This prevents dependency-cache junctions from crossing the
 declared scan boundary. The adaptation is declared in `SOURCE.json` and the
 executed copy remains covered by the adapter's pinned runtime SHA-256.
+PowerShell source is hashed after canonical LF newline normalization so the
+same reviewed text has one digest when Git materializes LF or declared CRLF.
 
 Upstream metadata declares the package license as MIT, but the pinned upstream
 revision does not currently contain a `LICENSE` file. This notice records that

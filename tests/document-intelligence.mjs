@@ -116,7 +116,12 @@ try {
   try {
     const copiedPack = path.join(tamperedRoot, "pack");
     await cp(path.join(rootDir, "capabilities", "rwang-document-intelligence"), copiedPack, { recursive: true });
-    await appendFile(path.join(copiedPack, "scripts", "scan-annotations.ps1"), "\n# tampered\n", "utf8");
+    const copiedScanner = path.join(copiedPack, "scripts", "scan-annotations.ps1");
+    const scannerText = await readFile(copiedScanner, "utf8");
+    await writeFile(copiedScanner, scannerText.replace(/\r\n?/g, "\r\n"), "utf8");
+    const crlfCapability = createDocumentIntelligence({ rootDir, capabilityDir: copiedPack });
+    await crlfCapability.close();
+    await appendFile(copiedScanner, "\r\n# tampered\r\n", "utf8");
     assert.throws(
       () => createDocumentIntelligence({ rootDir, capabilityDir: copiedPack }),
       (error) => error instanceof DocumentIntelligenceError && error.code === "DOCUMENT_INTELLIGENCE_INTEGRITY",

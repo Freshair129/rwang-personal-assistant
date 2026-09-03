@@ -1,9 +1,9 @@
 ---
-version: "0.2.1b"
-doc_version: "0.2.1"
+version: "0.2.2b"
+doc_version: "0.2.2"
 doc_status: "approved"
 created_at: "2026-09-03T00:52:00+07:00,RWANG,d534d3f4299227162093c7dc02341da08144a98d"
-last_update: "2026-09-04T06:06:23+07:00,RWANG"
+last_update: "2026-09-04T06:18:00+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -32,6 +32,10 @@ Document Intelligence scan ด้วย UNSAFE_REPOSITORY_PATH แม้ securit
 junction อยู่ใต้ `.pnpm-store` ใช้เวลาครบ 30 วินาทีและจบเป็น `timed-out`
 แทน `passed`
 
+หลัง bounded-scanner patch แล้ว fresh run `33816585953` ไม่ timeout แต่ล้มทันที
+ด้วย `DOCUMENT_INTELLIGENCE_INTEGRITY`: digest ของ `scan-annotations.ps1`
+ไม่ตรงกับค่า pin
+
 ## Evidence
 
 1. stage script ติดตั้ง production dependencies ใน temporary path
@@ -55,6 +59,9 @@ junction อยู่ใต้ `.pnpm-store` ใช้เวลาครบ 30 �
    `scan-annotations.ps1` ใช้ `Get-ChildItem -Recurse` และไม่มี `.pnpm-store`
    ใน `$SkipDirs`; file-level `Where-Object` ทำงานหลัง recursion เริ่มแล้ว จึง
    ไม่สามารถตัด junction ก่อน traversal ได้
+10. `.gitattributes` กำหนด `*.ps1 text eol=crlf`; digest ใน commit `fe93e5f`
+    ถูกคำนวณจาก working file หลัง patch ซึ่งมี line endings แบบ mixed ขณะที่
+    fresh checkout materialize เป็น CRLF ทั้งไฟล์ จึงได้ byte digest คนละค่า
 
 ## Root Cause
 
@@ -74,6 +81,11 @@ PowerShell scanner ใช้ recursive provider traversal ซึ่งเข้�
 และ junction ก่อน post-filter จะเห็น entry นั้น จึงวน/รอ dangling target จน
 adapter timeout แม้ path ดังกล่าวควรอยู่นอก scan boundary
 
+fresh integrity failure มี root cause ที่ runtime digest ผูกกับ physical newline
+representation ของ checkout ทั้งที่ source-control contract อนุญาตให้ Git
+materialize PowerShell text ต่างกันตาม declared EOL; การคำนวณค่าจาก transient
+working tree จึงไม่ใช่ canonical source digest
+
 ## Why the Issue Escaped Detection
 
 - security suite ถูกตรวจครั้งแรกก่อน staging
@@ -86,6 +98,9 @@ adapter timeout แม้ path ดังกล่าวควรอยู่น�
 - local Windows session สร้าง junction fixture ไม่ได้และข้าม test ด้วย
   `EPERM`; hosted runner สร้าง fixture ได้ จึงเป็น environment แรกที่ execute
   regression path จริง
+- verification ก่อน commit ตรวจ hash และ test กับ transient working copy แต่ไม่
+  materialize fresh checkout ตาม `.gitattributes`; CI จึงเป็นจุดแรกที่ตรวจ CRLF
+  copy ทั้งไฟล์
 
 ## Implemented Solution
 
@@ -114,6 +129,9 @@ adapter timeout แม้ path ดังกล่าวควรอยู่น�
     directory enumeration ที่ตัด exact ignored-directory names และทุก reparse
     point ก่อน enqueue; บันทึก local security adaptation ใน source provenance
     และ pin digest ใหม่
+11. canonicalize line endings ของ allowlisted PowerShell text เป็น LF เฉพาะตอน
+    คำนวณ integrity SHA-256; เพิ่ม fixture ที่ rewrite scanner เป็น CRLF แล้วต้อง
+    ผ่าน ขณะที่ content tamper เดิมยังต้อง fail closed
 
 ## Verification Evidence
 
@@ -158,14 +176,16 @@ not identify binaries rebuilt from the current source):
   secret file ใน staged source หรือ manifest
 - current local source ผ่าน `tauri build --no-bundle` และสร้าง
   `RWANG_0.5.0_x64-setup.exe`; raw SHA-256 คือ
-  `4e0f311c8e6cef42ffa142fc4a1c077b31c4052df0950bb4b154236c86605890`
+  `665680626518753a94f3c10dda53e587860f859c57e9b0510754ca6239467630`
   และ installer SHA-256 คือ
-  `13aadb63faaadea1136e0d6d2aaa99322fbc5b87cf32822549aed74121ec2f0d`;
+  `5c526457c5164c37126fe1c860be954747f5d803bea9d2032b8d528468aecaaa`;
   ทั้งคู่ `NotSigned` และยังไม่ถูกนับเป็น clean-machine smoke evidence
 - fresh GitHub Actions rerun ยังเป็น exit criterion; local pass ไม่ถูกนับเป็น
   clean-machine Windows 10/11 installer evidence
 - fresh run `33815919894` ให้หลักฐาน regression เพิ่มเติม: staging ผ่าน แต่
   link-policy fixture timeout ตาม root cause ข้างต้น; run นี้ยังไม่ใช่ pass
+- fresh run `33816585953` ยืนยันว่า bounded scanner ไม่ถึง timeout เดิม แต่เผย
+  non-canonical EOL digest; run นี้ยังไม่ใช่ pass
 
 ## Risk Assessment
 
@@ -191,6 +211,7 @@ runtime permission, approval gate, external action หรือ application data
 | RCA none | 0.1.0b candidate | บันทึก post-stage security ordering root cause และ patch contract |
 | RCA 0.1.0b | 0.2.0b beta | เพิ่ม nested-shell CI root cause, checksum และ release evidence contract |
 | RCA 0.2.0b | 0.2.1b beta | บันทึก hosted-runner traversal timeout และ bounded-scanner remediation |
+| RCA 0.2.1b | 0.2.2b beta | บันทึก checkout EOL digest mismatch และ canonical hash contract |
 | Product 0.5.0 | Product 0.5.0 | hotfix ภายใน release pipeline; ไม่ bump public product version |
 
 ## CHANGELOG
@@ -201,3 +222,4 @@ runtime permission, approval gate, external action หรือ application data
 | 0.1.0b | 2026-09-03 | beta | ใช้ hotfix และผ่าน post-stage security, package, Rust, build และ artifact smoke gates | 3a6657c | RWANG |
 | 0.2.0b | 2026-09-04 | beta | ใช้ shell-independent hashing และทำ CI/checksum/secret/VM contracts ให้ตรงหลักฐาน | ba1200d | RWANG |
 | 0.2.1b | 2026-09-04 | beta | ยืนยัน recursive scanner เดินเข้า ignored junction ก่อน post-filter และกำหนด bounded enumeration | a176e6f | RWANG |
+| 0.2.2b | 2026-09-04 | beta | ยืนยัน transient-EOL digest drift และกำหนด LF-canonical PowerShell integrity hash | fe93e5f | RWANG |
