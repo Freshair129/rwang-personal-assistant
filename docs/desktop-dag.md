@@ -1,7 +1,7 @@
 ---
 version: "0.1.0b"
 created_at: "2026-09-03T02:33:20+07:00,Freshair129,3a6657caf0519f54b8bee05658f3047856e64b65"
-last_update: "2026-09-04T05:34:37+07:00,RWANG"
+last_update: "2026-09-04T06:02:32+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -137,4 +137,4 @@ file indexing are outside the Desktop Alpha DAG.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
-| 0.1.0b | 2026-09-04 | beta | Align DAG release gates and rollback claims with verified implementation status | uncommitted | RWANG |
+| 0.1.0b | 2026-09-04 | beta | Align DAG release gates and rollback claims with verified implementation status | ba1200d | RWANG |

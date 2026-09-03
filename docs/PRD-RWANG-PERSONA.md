@@ -3,7 +3,7 @@ version: "0.2.2b"
 doc_version: "0.2.2"
 doc_status: "approved"
 created_at: "2026-09-02T15:36:14+07:00,RWANG,d534d3f4299227162093c7dc02341da08144a98d"
-last_update: "2026-09-04T05:27:58+07:00,RWANG"
+last_update: "2026-09-04T06:02:32+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -256,4 +256,4 @@ static prompt coverage ไม่ถือเป็นหลักฐานว่
 | 0.1.0b | 2026-09-02 | candidate | นิยาม persona และ cultural connection ฉบับเสนอ | 3a6657c | RWANG |
 | 0.2.0b | 2026-09-02 | beta | อนุมัติ AI disclosure by name, anti-sycophancy และ placeholder doctrine | 3a6657c | RWANG |
 | 0.2.1b | 2026-09-02 | beta | เพิ่ม deterministic scenario coverage และแยก manual per-model stable gate | 3a6657c | RWANG |
-| 0.2.2b | 2026-09-04 | beta | จัด alignment ระหว่าง PRD, shared prompt, expected policy tests และ disclosure readability โดยยังไม่อ้าง Stable | pending; baseline 3a6657c | RWANG |
+| 0.2.2b | 2026-09-04 | beta | จัด alignment ระหว่าง PRD, shared prompt, expected policy tests และ disclosure readability โดยยังไม่อ้าง Stable | ba1200d | RWANG |

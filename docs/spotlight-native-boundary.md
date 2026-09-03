@@ -1,7 +1,7 @@
 ---
 version: "0.2.0b"
 created_at: "2026-09-03T02:33:20+07:00,RWANG,3a6657caf0519f54b8bee05658f3047856e64b65"
-last_update: "2026-09-04T05:28:01+07:00,RWANG"
+last_update: "2026-09-04T06:02:32+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -109,4 +109,4 @@ The gates must prove that:
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
 | 0.1.0b | 2026-09-03 | beta | Initial Desktop Alpha Spotlight bridge proposal | 3a6657c | RWANG |
-| 0.2.0b | 2026-09-04 | beta | Document host-only focus, current shortcut, and one exact-origin navigation policy | uncommitted | RWANG |
+| 0.2.0b | 2026-09-04 | beta | Document host-only focus, current shortcut, and one exact-origin navigation policy | ba1200d | RWANG |

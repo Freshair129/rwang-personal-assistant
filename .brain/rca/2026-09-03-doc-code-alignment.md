@@ -3,7 +3,7 @@ version: "0.1.0b"
 doc_version: "0.1.0"
 doc_status: "approved"
 created_at: "2026-09-03T21:01:52+07:00,RWANG,3a6657caf0519f54b8bee05658f3047856e64b65"
-last_update: "2026-09-04T05:53:35+07:00,RWANG"
+last_update: "2026-09-04T06:02:32+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -14,6 +14,7 @@ attributes:
   language: "th-TH"
   change_risk: "HIGH"
   baseline_commit: "3a6657caf0519f54b8bee05658f3047856e64b65"
+  implementation_commit: "ba1200d8868eaf9ee74349fbec6f1f6bd07eb744"
 ---
 
 # RCA and Remediation Specification — Documentation/Code Alignment
@@ -380,5 +381,5 @@ code signing ต้องมีหลักฐานแยกก่อนเล�
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
-| 0.1.0b | 2026-09-03 | candidate | เสนอ cross-layer remediation สำหรับ CI, release, persona, Spotlight, lifecycle และ docs | uncommitted | RWANG |
-| 0.1.0b | 2026-09-04 | beta | Boss อนุมัติสเปกและ implementation ผ่าน local automated gates; รอ fresh PR CI/manual evidence ตามขอบเขต | uncommitted | RWANG |
+| 0.1.0b | 2026-09-03 | candidate | เสนอ cross-layer remediation สำหรับ CI, release, persona, Spotlight, lifecycle และ docs | ba1200d | RWANG |
+| 0.1.0b | 2026-09-04 | beta | Boss อนุมัติสเปกและ implementation ผ่าน local automated gates; รอ fresh PR CI/manual evidence ตามขอบเขต | ba1200d | RWANG |

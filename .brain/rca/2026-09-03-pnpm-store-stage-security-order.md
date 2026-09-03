@@ -3,7 +3,7 @@ version: "0.2.0b"
 doc_version: "0.2.0"
 doc_status: "approved"
 created_at: "2026-09-03T00:52:00+07:00,RWANG,d534d3f4299227162093c7dc02341da08144a98d"
-last_update: "2026-09-04T05:34:37+07:00,RWANG"
+last_update: "2026-09-04T06:02:32+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -171,4 +171,4 @@ runtime permission, approval gate, external action หรือ application data
 |---|---|---|---|---|---|
 | 0.1.0b | 2026-09-03 | candidate | เสนอปิด dangling pnpm project link และ build-path metadata leak | 3a6657c | RWANG |
 | 0.1.0b | 2026-09-03 | beta | ใช้ hotfix และผ่าน post-stage security, package, Rust, build และ artifact smoke gates | 3a6657c | RWANG |
-| 0.2.0b | 2026-09-04 | beta | ใช้ shell-independent hashing และทำ CI/checksum/secret/VM contracts ให้ตรงหลักฐาน | uncommitted | RWANG |
+| 0.2.0b | 2026-09-04 | beta | ใช้ shell-independent hashing และทำ CI/checksum/secret/VM contracts ให้ตรงหลักฐาน | ba1200d | RWANG |
