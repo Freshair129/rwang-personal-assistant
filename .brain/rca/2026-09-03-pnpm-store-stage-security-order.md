@@ -1,9 +1,9 @@
 ---
-version: "0.2.10b"
-doc_version: "0.2.10"
+version: "0.2.11b"
+doc_version: "0.2.11"
 doc_status: "approved"
 created_at: "2026-09-03T00:52:00+07:00,RWANG,d534d3f4299227162093c7dc02341da08144a98d"
-last_update: "2026-09-04T07:25:00+07:00,RWANG"
+last_update: "2026-09-04T07:35:00+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -70,6 +70,11 @@ Windows PowerShell action
 run `33819729943` หลังเพิ่ม deadline เป็น 60 วินาทียังตัดที่ 60,027 ms จึง
 หักล้าง cold-start variance hypothesis และยืนยัน deterministic hang ที่ต้อง
 localize ด้วย detailed phase trace ภายใต้ final scanner logic
+
+run `33820044423` พร้อม trace จบทุก marker ถึง
+`report-serialization-complete` และ fixture ผ่านใน 33,481 ms; โหมดไม่มี trace
+ต่างกันที่ไม่มี statement หลัง final JSON pipeline และค้างจน deadline จึง
+localize remaining hang ที่ PowerShell pipeline/stdio finalization
 
 ## Evidence
 
@@ -149,6 +154,11 @@ execution-budget hypothesis ถูกหักล้างโดย 60-second ru
 ด้วย marker สุดท้ายก่อนสรุป การเพิ่ม deadlineยังคงเป็น bounded safety margin
 แต่ไม่ถือเป็น remediation ของ hang
 
+final remaining root cause คือ script ปล่อย `ConvertTo-Json` เป็น final pipeline
+โดยไม่มี explicit process exit บน piped hosted Windows PowerShell; trace-enabled
+version มี statement หลัง pipeline และ exit ได้ครบ ขณะที่ no-trace version ค้าง
+แม้เพิ่ม deadline จึงต้องกำหนด success exit หลัง output อย่างชัดเจน
+
 ## Why the Issue Escaped Detection
 
 - security suite ถูกตรวจครั้งแรกก่อน staging
@@ -219,6 +229,8 @@ execution-budget hypothesis ถูกหักล้างโดย 60-second ru
 19. คืน granular trace ชั่วคราวบน final scanner logic และพิมพ์ sanitized
     diagnostics/duration ของ fixture แม้สำเร็จ; last emitted phase จะแยก
     enumeration, report serialization และ process-exit hang
+20. ใส่ `exit 0` หลัง output branch ทั้งหมดเพื่อปิด PowerShell host อย่างชัดเจน
+    แล้วถอด trace parameter/markers/logging; คง 60-second bound เป็น safety cap
 
 ## Verification Evidence
 
@@ -289,6 +301,8 @@ not identify binaries rebuilt from the current source):
   เคยผ่าน จึงยืนยัน 30-second hosted variance false-timeout boundary
 - fresh run `33819729943` ล้มที่ 60,027 ms จึงหักล้าง variance hypothesis;
   60-second deadline ไม่ใช่ standalone fix
+- fresh run `33820044423` แสดง phase ครบถึง serialization complete และ fixture
+  duration 33,481 ms จึงยืนยัน hang อยู่หลัง report pipeline ก่อน process exit
 
 ## Risk Assessment
 
@@ -323,6 +337,7 @@ runtime permission, approval gate, external action หรือ application data
 | RCA 0.2.7b | 0.2.8b beta | บันทึก hosted scanner pass และถอด temporary phase trace |
 | RCA 0.2.8b | 0.2.9b beta | เพิ่ม bounded 60-second deadline ตาม hosted cold-start evidence |
 | RCA 0.2.9b | 0.2.10b beta | หักล้าง timeout-budget hypothesis และคืน final-logic phase trace |
+| RCA 0.2.10b | 0.2.11b beta | ยืนยัน post-serialization exit hang และเพิ่ม explicit success exit |
 | Product 0.5.0 | Product 0.5.0 | hotfix ภายใน release pipeline; ไม่ bump public product version |
 
 ## CHANGELOG
@@ -342,3 +357,4 @@ runtime permission, approval gate, external action หรือ application data
 | 0.2.8b | 2026-09-04 | beta | hosted runner ผ่าน Document Intelligence suite; ถอด bounded trace หลังยืนยัน RCA | a82635f | RWANG |
 | 0.2.9b | 2026-09-04 | beta | repeated exact-deadline failures ยืนยัน 30-second false timeout; เพิ่ม bounded budget เป็น 60 วินาที | a0defae | RWANG |
 | 0.2.10b | 2026-09-04 | beta | 60-second run ยังค้าง; ถอน variance conclusion และกำหนด final-logic trace | d19ed00 | RWANG |
+| 0.2.11b | 2026-09-04 | beta | trace จบถึง report serialization; กำหนด explicit process exit และถอด instrumentation | f3cafdc | RWANG |

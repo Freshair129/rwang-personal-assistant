@@ -30,6 +30,8 @@ assert.doesNotMatch(scannerSource, /New-Object\s+['"]System\.Collections\.Generi
   "the scanner must not depend on cmdlet resolution to initialize traversal state");
 assert.match(scannerSource, /Stack\[string\]\]::new\(\)/,
   "the scanner must construct traversal state through the static .NET path");
+assert.match(scannerSource, /\nexit 0\s*$/,
+  "the scanner must terminate explicitly after flushing its final output pipeline");
 assert.doesNotMatch(scannerSource, /Resolve-Path\s+\$Path/i,
   "the scanner must not resolve its root through the PowerShell provider");
 assert.match(scannerSource, /Path\]::GetFullPath\(\$Path\)/,
@@ -68,8 +70,7 @@ async function verifyTraversalLinkPolicy() {
 
     const cachedCapability = createDocumentIntelligence({ rootDir: cachedRoot });
     try {
-      const cachedScan = await cachedCapability.scanAnnotations({ tracePhases: true });
-      console.log(`RWANG Document Intelligence fixture timing: ${cachedScan.durationMs}ms ${cachedScan.diagnostics || "no-trace"}`);
+      const cachedScan = await cachedCapability.scanAnnotations();
       assert.equal(
         cachedScan.status,
         "passed",

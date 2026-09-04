@@ -144,6 +144,32 @@ async function resolveConfiguredDirectory(name, supplied, { create = false } = {
   }
 }
 
+async function canonicalizeProspectiveConfiguredDirectory(name, requested) {
+  const missingSegments = [];
+  let current = requested;
+  while (true) {
+    try {
+      const canonicalAncestor = await realpath(current);
+      const ancestorStats = await lstat(canonicalAncestor);
+      if (!ancestorStats.isDirectory() || ancestorStats.isSymbolicLink()) {
+        throw startupError(`INVALID_${name}`, `${name} must descend from a directory`);
+      }
+      return path.join(canonicalAncestor, ...missingSegments.reverse());
+    } catch (error) {
+      if (error?.code !== "ENOENT") {
+        if (error?.code === `INVALID_${name}`) throw error;
+        throw startupError(`INVALID_${name}`, `${name} is unavailable or inaccessible`);
+      }
+      const parent = path.dirname(current);
+      if (parent === current) {
+        throw startupError(`INVALID_${name}`, `${name} has no accessible ancestor`);
+      }
+      missingSegments.push(path.basename(current));
+      current = parent;
+    }
+  }
+}
+
 function assertDataDirectorySeparate(dataPath, otherPath) {
   if (isContained(otherPath, dataPath) || isContained(dataPath, otherPath)) {
     throw startupError("INVALID_DATA_DIR", "RWANG_DATA_DIR must be separate from RESOURCE_DIR and WORKSPACE_DIR");
@@ -336,8 +362,9 @@ async function configureRuntime() {
   // or workspace tree. Canonical checks below still protect symlink aliases
   // after the data directory exists.
   const requestedDataPath = normalizeConfiguredPath("DATA_DIR", requestedDataDir);
-  assertDataDirectorySeparate(requestedDataPath, resourceDir);
-  assertDataDirectorySeparate(requestedDataPath, workspaceDir);
+  const prospectiveDataPath = await canonicalizeProspectiveConfiguredDirectory("DATA_DIR", requestedDataPath);
+  assertDataDirectorySeparate(prospectiveDataPath, resourceDir);
+  assertDataDirectorySeparate(prospectiveDataPath, workspaceDir);
   dataDir = await resolveConfiguredDirectory("DATA_DIR", requestedDataPath, { create: true });
   assertStartupActive();
   capabilityDir = await resolveConfiguredDirectory("CAPABILITY_DIR", requestedCapabilityDir);

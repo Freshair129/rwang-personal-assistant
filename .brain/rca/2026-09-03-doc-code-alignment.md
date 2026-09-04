@@ -1,9 +1,9 @@
 ---
-version: "0.1.2b"
-doc_version: "0.1.2"
+version: "0.1.3b"
+doc_version: "0.1.3"
 doc_status: "approved"
 created_at: "2026-09-03T21:01:52+07:00,RWANG,3a6657caf0519f54b8bee05658f3047856e64b65"
-last_update: "2026-09-04T07:18:00+07:00,RWANG"
+last_update: "2026-09-04T07:35:00+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -14,7 +14,7 @@ attributes:
   language: "th-TH"
   change_risk: "HIGH"
   baseline_commit: "3a6657caf0519f54b8bee05658f3047856e64b65"
-  implementation_commit: "d19ed000c5f96aa8ceb4d38c65052ac009cb68c4"
+  implementation_commit: "f3cafdc468cd7d2891ff288c2d85a0ad31cc5f2b"
 ---
 
 # RCA and Remediation Specification — Documentation/Code Alignment
@@ -63,6 +63,10 @@ data path, release artifact และ persona behavior ไม่ตรงกั�
 Spotlight, security smoke และ remote security แต่ backend overlap test คืน
 `INVALID_CAPABILITY_DIR` แทน `INVALID_DATA_DIR` เมื่อ prospective data path ยัง
 เป็น short alias ขณะที่ resource root canonicalize เป็น long pathแล้ว
+
+run `33820044423` ยืนยัน core overlap guard ผ่าน แต่ child-server test ยังสร้าง
+nested data directory ก่อน rejection เพราะ `server.mjs` มี raw-path precheck
+และ create flow แยกจาก `createRwangCore`
 
 ## 4. Evidence
 
@@ -127,6 +131,10 @@ Spotlight, security smoke และ remote security แต่ backend overlap te
     `backend-hardening.mjs:230`; `nestedData` ยังไม่ถูกสร้างและใช้ short-path
     parent แต่ `resourceRoot` ถูก `realpath` เป็น long path ทำให้ pre-create
     overlap comparison พลาดและ flow ไปถึง missing default capability directory
+13. Windows run `33820044423` ผ่าน core overlap assertion แต่
+    `serverRejectsNestedData` พบ nested directory ถูกสร้างแล้ว; `server.mjs`
+    เรียก `resolveConfiguredDirectory(..., { create: true })` หลัง lexical
+    raw/canonical alias check ที่พลาด และค่อยตรวจ canonical overlap ภายหลัง
 
 ### 4.4 Documentation governance
 
@@ -155,6 +163,8 @@ Rust host, Node sidecar, UI และ release workflow:
    negative โดยไม่กระทบ containment, file identity หรือ launcher boundary
 6. backend pre-create overlap guard เปรียบ canonical existing root กับ raw
    prospective path; alias ต่างกันทำให้ containment false negative ก่อน mkdir
+7. guard ใน `rwang.mjs` และ `server.mjs` เป็น peer implementations; แก้เฉพาะ
+   core ไม่ครอบคลุม server startup owner ที่ทำ directory creation เอง
 
 ## 6. Why the issue escaped detection
 
@@ -168,6 +178,8 @@ Rust host, Node sidecar, UI และ release workflow:
   hosted runner เปิดเผย
 - test เดิมครอบคลุม nested data side-effect แต่ local path spelling เหมือนกัน
   ทั้งสองฝั่ง จึงไม่เปิดเผย canonical/raw mismatch
+- peer review เดิมตรวจ contract ระดับ core แต่ไม่บังคับ shared prospective-path
+  semantics ที่ server startup ก่อน mutation
 
 ## 7. Normative remediation decisions (implemented)
 
@@ -257,6 +269,8 @@ tauri build
 - ก่อนสร้าง `DATA_DIR` ให้ resolve nearest existing ancestor เป็น canonical path
   แล้วต่อ suffix ที่ยังไม่มีเพื่อทำ overlap check กับ canonical resource/workspace;
   path alias ต้องไม่เปลี่ยน error codeหรือสร้าง directory ก่อน rejection
+- server startup ต้องใช้ canonical prospective path ใน pre-create separation
+  checks เช่นเดียวกับ core และยังคง post-create canonical defense-in-depth
 
 ### D7 — Accurate lifecycle, diagnostics and optional features
 
@@ -396,7 +410,7 @@ code signing ต้องมีหลักฐานแยกก่อนเล�
 
 | Artifact | From | To after implementation | Change |
 |---|---|---|---|
-| Alignment RCA/spec | none | `0.1.2b` beta | เพิ่ม prospective DATA_DIR alias RCA และ pre-create canonical guard |
+| Alignment RCA/spec | none | `0.1.3b` beta | ขยาย prospective DATA_DIR guard ให้ server startup owner |
 | Persona PRD | `0.2.1b` beta | `0.2.2b` beta | prompt/test traceability, readable disclosure, commit evidence |
 | pnpm staging RCA | `0.1.0b` beta | `0.2.7b` beta | `.bin`, shell/hash, scanner traversal และ hosted phase evidence |
 | Desktop DAG | unversioned | `0.1.0b` beta | truthful wave/manual status, paths and rollback |
@@ -416,3 +430,4 @@ code signing ต้องมีหลักฐานแยกก่อนเล�
 | 0.1.0b | 2026-09-04 | beta | Boss อนุมัติสเปกและ implementation ผ่าน local automated gates; รอ fresh PR CI/manual evidence ตามขอบเขต | ba1200d | RWANG |
 | 0.1.1b | 2026-09-04 | beta | Windows CI ผ่าน scanner gateและพบ Spotlight short/long path alias; กำหนด canonical expected identity | a82635f | RWANG |
 | 0.1.2b | 2026-09-04 | beta | hosted backend test พบ canonical/raw prospective path mismatch; กำหนด nearest-ancestor canonicalization | d19ed00 | RWANG |
+| 0.1.3b | 2026-09-04 | beta | hosted child-server test ยืนยัน peer precheck drift; บังคับ canonical guard ก่อน mkdir | f3cafdc | RWANG |
