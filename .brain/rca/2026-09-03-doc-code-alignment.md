@@ -1,9 +1,9 @@
 ---
-version: "0.1.4b"
-doc_version: "0.1.4"
+version: "0.1.5b"
+doc_version: "0.1.5"
 doc_status: "approved"
 created_at: "2026-09-03T21:01:52+07:00,RWANG,3a6657caf0519f54b8bee05658f3047856e64b65"
-last_update: "2026-09-04T11:01:38+07:00,RWANG"
+last_update: "2026-09-04T11:17:12+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -14,7 +14,7 @@ attributes:
   language: "th-TH"
   change_risk: "HIGH"
   baseline_commit: "3a6657caf0519f54b8bee05658f3047856e64b65"
-  implementation_commit: "uncommitted"
+  implementation_commit: "f3e467df34d6cfcf45afbf865263d6701a6f437d"
 ---
 
 # RCA and Remediation Specification — Documentation/Code Alignment
@@ -28,8 +28,8 @@ attributes:
   release ตรงตาม contract เดิม ไม่ใช่การเพิ่ม public feature
 - Baseline: commit `3a6657caf0519f54b8bee05658f3047856e64b65`
 - Approval: **อนุมัติโดย Boss (บอส), 2026-09-04**
-- Implementation state: implementation และ local automated gates เสร็จแล้ว;
-  fresh PR CI และ manual release evidence ยังเป็น exit gates แยกกัน
+- Implementation state: implementation, local automated gates และ fresh PR CI
+  เสร็จแล้ว; manual release evidence ยังเป็น production gates แยกกัน
 
 ## 2. Goal and scope
 
@@ -336,12 +336,14 @@ tauri build
   512x512 และ ICO 6 images decode สำเร็จ
 - `tauri build --no-bundle` และ unsigned NSIS build ผ่านใน local Windows
   developer environment; raw binary SHA-256 คือ
-  `0d2ef2529b353bfe7fc62fb86fbc7e764124e6d2fb897cb998d21bb064a48187`
+  `5590bc73505f090c8f69b25a82e99d40b5c5fddc498c40209878f2abc1450e2f`
   และ `RWANG_0.5.0_x64-setup.exe` SHA-256 คือ
-  `be46bf3ae0433128ef92f75746e666c6c59b3298136a40a2de4564041392dc74`
-- ทั้งสองไฟล์มีสถานะ `NotSigned`; Fresh GitHub PR CI, installer execution/smoke,
-  Windows 10/11 clean VM, per-model evaluation และ code signing ยังไม่ถูกนับว่า
-  ผ่านในหลักฐานชุดนี้
+  `77464fccddc6f8e6d86b4e0e9e3014c95adda2c66f90555820a512e4928db87b`
+- fresh PR checks ที่ implementation commit ผ่าน: CI run `33835354226` และ
+  Windows desktop run `33835354197`; Windows run ผ่าน stage, post-stage
+  security, desktop contracts, Rust default/autostart/tests และ Tauri no-bundle
+- ทั้งสองไฟล์มีสถานะ `NotSigned`; installer execution/smoke บน Windows 10/11
+  clean VM, per-model evaluation และ code signing ยังไม่ถูกนับว่าผ่าน
 
 ## 8. Parent and peer impact
 
@@ -432,9 +434,9 @@ code signing ต้องมีหลักฐานแยกก่อนเล�
 
 | Artifact | From | To after implementation | Change |
 |---|---|---|---|
-| Alignment RCA/spec | none | `0.1.4b` beta | เพิ่ม PowerShell error-rendering RCA และ semantic assertion contract |
+| Alignment RCA/spec | none | `0.1.5b` beta | บันทึก fresh green CI และ current local artifact evidence |
 | Persona PRD | `0.2.1b` beta | `0.2.2b` beta | prompt/test traceability, readable disclosure, commit evidence |
-| pnpm staging RCA | `0.1.0b` beta | `0.2.7b` beta | `.bin`, shell/hash, scanner traversal และ hosted phase evidence |
+| pnpm staging RCA | `0.1.0b` beta | `0.2.12b` beta | `.bin`, shell/hash, scanner RCA และ fresh hosted pass evidence |
 | Desktop DAG | unversioned | `0.1.0b` beta | truthful wave/manual status, paths and rollback |
 | Package staging doc | unversioned | `0.1.0b` beta | exact pnpm/hash/staging contract |
 | Desktop release doc | unversioned | `0.1.0b` beta | order, checksum, placeholder-free artifacts |
@@ -453,4 +455,5 @@ code signing ต้องมีหลักฐานแยกก่อนเล�
 | 0.1.1b | 2026-09-04 | beta | Windows CI ผ่าน scanner gateและพบ Spotlight short/long path alias; กำหนด canonical expected identity | a82635f | RWANG |
 | 0.1.2b | 2026-09-04 | beta | hosted backend test พบ canonical/raw prospective path mismatch; กำหนด nearest-ancestor canonicalization | d19ed00 | RWANG |
 | 0.1.3b | 2026-09-04 | beta | hosted child-server test ยืนยัน peer precheck drift; บังคับ canonical guard ก่อน mkdir | f3cafdc | RWANG |
-| 0.1.4b | 2026-09-04 | beta | hosted PowerShell แทรก CRLF ใน SHA mismatch error; กำหนด assertion แบบ whitespace-tolerant โดยคง fail-closed gate | uncommitted | RWANG |
+| 0.1.4b | 2026-09-04 | beta | hosted PowerShell แทรก CRLF ใน SHA mismatch error; กำหนด assertion แบบ whitespace-tolerant โดยคง fail-closed gate | f3e467d | RWANG |
+| 0.1.5b | 2026-09-04 | beta | fresh CI และ Windows desktop gates ผ่านที่ implementation commit; อัปเดต local binary/NSIS hashes และคง manual gates แยก | f3e467d | RWANG |

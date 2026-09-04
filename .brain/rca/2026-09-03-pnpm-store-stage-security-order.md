@@ -1,9 +1,9 @@
 ---
-version: "0.2.11b"
-doc_version: "0.2.11"
+version: "0.2.12b"
+doc_version: "0.2.12"
 doc_status: "approved"
 created_at: "2026-09-03T00:52:00+07:00,RWANG,d534d3f4299227162093c7dc02341da08144a98d"
-last_update: "2026-09-04T07:35:00+07:00,RWANG"
+last_update: "2026-09-04T11:17:12+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -275,12 +275,15 @@ not identify binaries rebuilt from the current source):
   secret file ใน staged source หรือ manifest
 - current local source ผ่าน `tauri build --no-bundle` และสร้าง
   `RWANG_0.5.0_x64-setup.exe`; raw SHA-256 คือ
-  `8beffed4b0f1c52d1825428583577358ac299c87cbcbde146f48637faf94b01b`
+  `5590bc73505f090c8f69b25a82e99d40b5c5fddc498c40209878f2abc1450e2f`
   และ installer SHA-256 คือ
-  `bd07748615fa48b97f67dbaacc82fd8c28d344fb1af86c324c4f0a0de30e95a0`;
+  `77464fccddc6f8e6d86b4e0e9e3014c95adda2c66f90555820a512e4928db87b`;
   ทั้งคู่ `NotSigned` และยังไม่ถูกนับเป็น clean-machine smoke evidence
-- fresh GitHub Actions rerun ยังเป็น exit criterion; local pass ไม่ถูกนับเป็น
-  clean-machine Windows 10/11 installer evidence
+- fresh GitHub Actions ที่ implementation commit
+  `f3e467df34d6cfcf45afbf865263d6701a6f437d` ผ่าน: CI run `33835354226`
+  และ Windows desktop run `33835354197`; hosted symlink fixtures และ downstream
+  stage/security/desktop/Rust/Tauri gates ถูก execute ครบ
+- fresh green CI ไม่ถูกนับเป็น clean-machine Windows 10/11 installer evidence
 - fresh run `33815919894` ให้หลักฐาน regression เพิ่มเติม: staging ผ่าน แต่
   link-policy fixture timeout ตาม root cause ข้างต้น; run นี้ยังไม่ใช่ pass
 - fresh run `33816585953` ยืนยันว่า bounded scanner ไม่ถึง timeout เดิม แต่เผย
@@ -303,6 +306,9 @@ not identify binaries rebuilt from the current source):
   60-second deadline ไม่ใช่ standalone fix
 - fresh run `33820044423` แสดง phase ครบถึง serialization complete และ fixture
   duration 33,481 ms จึงยืนยัน hang อยู่หลัง report pipeline ก่อน process exit
+- fresh run `33835354197` ผ่าน Document Intelligence suite หลัง explicit
+  `exit 0` และผ่าน downstream desktop/Rust/Tauri gates ครบ จึงปิด automated
+  scanner regression exit criterion
 
 ## Risk Assessment
 
@@ -338,6 +344,7 @@ runtime permission, approval gate, external action หรือ application data
 | RCA 0.2.8b | 0.2.9b beta | เพิ่ม bounded 60-second deadline ตาม hosted cold-start evidence |
 | RCA 0.2.9b | 0.2.10b beta | หักล้าง timeout-budget hypothesis และคืน final-logic phase trace |
 | RCA 0.2.10b | 0.2.11b beta | ยืนยัน post-serialization exit hang และเพิ่ม explicit success exit |
+| RCA 0.2.11b | 0.2.12b beta | บันทึก fresh green hosted regression และ current artifact hashes |
 | Product 0.5.0 | Product 0.5.0 | hotfix ภายใน release pipeline; ไม่ bump public product version |
 
 ## CHANGELOG
@@ -358,3 +365,4 @@ runtime permission, approval gate, external action หรือ application data
 | 0.2.9b | 2026-09-04 | beta | repeated exact-deadline failures ยืนยัน 30-second false timeout; เพิ่ม bounded budget เป็น 60 วินาที | a0defae | RWANG |
 | 0.2.10b | 2026-09-04 | beta | 60-second run ยังค้าง; ถอน variance conclusion และกำหนด final-logic trace | d19ed00 | RWANG |
 | 0.2.11b | 2026-09-04 | beta | trace จบถึง report serialization; กำหนด explicit process exit และถอด instrumentation | f3cafdc | RWANG |
+| 0.2.12b | 2026-09-04 | beta | fresh hosted scanner/downstream gates ผ่าน; บันทึก implementation commit และ local artifact hashes ล่าสุด | f3e467d | RWANG |
