@@ -1,9 +1,9 @@
 ---
-version: "0.2.9b"
-doc_version: "0.2.9"
+version: "0.2.10b"
+doc_version: "0.2.10"
 doc_status: "approved"
 created_at: "2026-09-03T00:52:00+07:00,RWANG,d534d3f4299227162093c7dc02341da08144a98d"
-last_update: "2026-09-04T07:10:00+07:00,RWANG"
+last_update: "2026-09-04T07:25:00+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -66,6 +66,10 @@ run `33819134371` หลังถอด trace กลับ timeout ที่ 30,
 และ fixture เหมือนรอบที่ผ่าน จึงแสดงว่า static-constructor hardening ไม่ใช่
 root cause ทั้งหมด และ deadline 30 วินาทีอยู่ในช่วงความแปรปรวนของ cold hosted
 Windows PowerShell action
+
+run `33819729943` หลังเพิ่ม deadline เป็น 60 วินาทียังตัดที่ 60,027 ms จึง
+หักล้าง cold-start variance hypothesis และยืนยัน deterministic hang ที่ต้อง
+localize ด้วย detailed phase trace ภายใต้ final scanner logic
 
 ## Evidence
 
@@ -140,12 +144,10 @@ generic stack ภายใต้ minimal Windows PowerShell environment ขอ�
 command/module resolution ไม่คืน control ก่อน timeout ขณะที่ static .NET
 constructor ไม่ต้องผ่าน cmdlet resolution
 
-fresh-run evidence รวมกันยืนยัน root cause ระดับ execution budget: fixed action
-deadline 30 วินาทีสั้นกว่าความแปรปรวนของ cold Windows PowerShell/hosted security
-scanning; failure ทุกครั้งตัดที่ 30,024-30,142 ms แต่ code เดียวกันผ่านและรัน
-Document Intelligence suite ครบใน run `33818622277` เมื่อแต่ละ action อยู่ใต้
-deadline อย่างฉิวเฉียด การตัดที่ deadline จึงเป็น false timeout ไม่ใช่หลักฐาน
-unbounded repository traversal
+execution-budget hypothesis ถูกหักล้างโดย 60-second run; remaining root cause
+เป็น deterministic hang ภายใน scanner หรือ process exit path ซึ่งยังต้องแยก
+ด้วย marker สุดท้ายก่อนสรุป การเพิ่ม deadlineยังคงเป็น bounded safety margin
+แต่ไม่ถือเป็น remediation ของ hang
 
 ## Why the Issue Escaped Detection
 
@@ -214,6 +216,9 @@ unbounded repository traversal
 18. ขยาย per-action deadline จาก 30 เป็น 60 วินาที โดยยัง kill child และมี
     fallback completion เดิม; เพิ่ม source contract ป้องกัน accidental unbounded
     timeout และไม่เปลี่ยน traversal/output caps
+19. คืน granular trace ชั่วคราวบน final scanner logic และพิมพ์ sanitized
+    diagnostics/duration ของ fixture แม้สำเร็จ; last emitted phase จะแยก
+    enumeration, report serialization และ process-exit hang
 
 ## Verification Evidence
 
@@ -282,6 +287,8 @@ not identify binaries rebuilt from the current source):
   static constructor; failure ถัดไปอยู่ใน Spotlight test และไม่เกี่ยวกับ scanner
 - fresh run `33819134371` ล้มที่ 30,029 ms หลังถอด trace ทั้งที่ code path เดิม
   เคยผ่าน จึงยืนยัน 30-second hosted variance false-timeout boundary
+- fresh run `33819729943` ล้มที่ 60,027 ms จึงหักล้าง variance hypothesis;
+  60-second deadline ไม่ใช่ standalone fix
 
 ## Risk Assessment
 
@@ -315,6 +322,7 @@ runtime permission, approval gate, external action หรือ application data
 | RCA 0.2.6b | 0.2.7b beta | localize New-Object hang และเปลี่ยนเป็น static .NET constructor |
 | RCA 0.2.7b | 0.2.8b beta | บันทึก hosted scanner pass และถอด temporary phase trace |
 | RCA 0.2.8b | 0.2.9b beta | เพิ่ม bounded 60-second deadline ตาม hosted cold-start evidence |
+| RCA 0.2.9b | 0.2.10b beta | หักล้าง timeout-budget hypothesis และคืน final-logic phase trace |
 | Product 0.5.0 | Product 0.5.0 | hotfix ภายใน release pipeline; ไม่ bump public product version |
 
 ## CHANGELOG
@@ -333,3 +341,4 @@ runtime permission, approval gate, external action หรือ application data
 | 0.2.7b | 2026-09-04 | beta | granular trace localize cmdlet stack construction และกำหนด static .NET constructor | 095afec | RWANG |
 | 0.2.8b | 2026-09-04 | beta | hosted runner ผ่าน Document Intelligence suite; ถอด bounded trace หลังยืนยัน RCA | a82635f | RWANG |
 | 0.2.9b | 2026-09-04 | beta | repeated exact-deadline failures ยืนยัน 30-second false timeout; เพิ่ม bounded budget เป็น 60 วินาที | a0defae | RWANG |
+| 0.2.10b | 2026-09-04 | beta | 60-second run ยังค้าง; ถอน variance conclusion และกำหนด final-logic trace | d19ed00 | RWANG |

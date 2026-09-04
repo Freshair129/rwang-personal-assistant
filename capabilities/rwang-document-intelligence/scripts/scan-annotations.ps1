@@ -28,10 +28,16 @@
 param(
     [string]$Path = ".",
     [string]$Format = "json",
-    [bool]$IncludeUnstructured = $true
+    [bool]$IncludeUnstructured = $true,
+    [switch]$TracePhases
 )
 
 $ErrorActionPreference = "Stop"
+
+function Write-ScanTrace {
+    param([string]$Phase)
+    if ($TracePhases) { [Console]::Error.WriteLine("rwang-scan-phase:$Phase") }
+}
 
 # File extensions to scan
 $Extensions = @("*.ts", "*.tsx", "*.js", "*.jsx", "*.py", "*.go", "*.java", "*.rs", "*.cs", "*.ps1")
@@ -64,16 +70,23 @@ function Get-FilesByFilter {
     param([string]$RootPath, [string[]]$Filters)
 
     $files = @()
+    Write-ScanTrace "enumeration-function-entry"
     $pending = [System.Collections.Generic.Stack[string]]::new()
+    Write-ScanTrace "stack-ready"
     $pending.Push($RootPath)
+    Write-ScanTrace "enumeration-start"
 
     while ($pending.Count -gt 0) {
         $current = $pending.Pop()
+        Write-ScanTrace "directory-start"
         try {
             $currentAttributes = [System.IO.File]::GetAttributes($current)
+            Write-ScanTrace "directory-attributes-ready"
             if (($currentAttributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) { continue }
             $filePaths = @([System.IO.Directory]::EnumerateFiles($current))
+            Write-ScanTrace "files-ready"
             $directoryPaths = @([System.IO.Directory]::EnumerateDirectories($current))
+            Write-ScanTrace "directories-ready"
         }
         catch {
             continue
@@ -91,6 +104,7 @@ function Get-FilesByFilter {
 
         foreach ($directoryPath in $directoryPaths) {
             $directoryName = [System.IO.Path]::GetFileName($directoryPath)
+            Write-ScanTrace "directory-name-ready"
             if ($SkipDirs -contains $directoryName) { continue }
             try {
                 $attributes = [System.IO.File]::GetAttributes($directoryPath)
@@ -102,6 +116,7 @@ function Get-FilesByFilter {
             }
         }
     }
+    Write-ScanTrace "enumeration-complete"
     return $files
 }
 
@@ -336,14 +351,21 @@ function Scan-TestSpecFile {
 }
 
 # Main execution
+Write-ScanTrace "main-entry"
 $resolvedPath = [System.IO.Path]::GetFullPath($Path)
+Write-ScanTrace "root-full-path-ready"
 if (-not [System.IO.Directory]::Exists($resolvedPath)) {
     throw "Scan root does not exist or is not a directory"
 }
+Write-ScanTrace "root-exists"
 $files = Get-SourceFiles -RootPath $resolvedPath
+Write-ScanTrace "source-files-ready"
 $mermaidFiles = Get-FilesByFilter -RootPath $resolvedPath -Filters @("*.mmd")
+Write-ScanTrace "mermaid-files-ready"
 $testSpecFiles = Get-FilesByFilter -RootPath $resolvedPath -Filters @("*.test.md")
+Write-ScanTrace "test-files-ready"
 $docMdFiles = Get-FilesByFilter -RootPath $resolvedPath -Filters @("*.md") | Where-Object { $_.Name -notlike "*.test.md" }
+Write-ScanTrace "doc-files-ready"
 
 $allAnnotations = @()
 $fileCount = 0
@@ -381,6 +403,7 @@ foreach ($file in $docMdFiles) {
 }
 
 # Build summary
+Write-ScanTrace "scan-loops-complete"
 $structured = @($allAnnotations | Where-Object { $_.type -eq "structured" }).Count
 $unstructured = @($allAnnotations | Where-Object { $_.type -eq "unstructured" }).Count
 
@@ -407,7 +430,9 @@ $report = @{
 }
 
 if ($Format -eq "json") {
+    Write-ScanTrace "report-serialization-start"
     $report | ConvertTo-Json -Depth 10
+    Write-ScanTrace "report-serialization-complete"
 } else {
     Write-Host "`n=== RWANG Annotation Scan Report ===" -ForegroundColor Cyan
     Write-Host "Root: $resolvedPath"

@@ -68,7 +68,8 @@ async function verifyTraversalLinkPolicy() {
 
     const cachedCapability = createDocumentIntelligence({ rootDir: cachedRoot });
     try {
-      const cachedScan = await cachedCapability.scanAnnotations();
+      const cachedScan = await cachedCapability.scanAnnotations({ tracePhases: true });
+      console.log(`RWANG Document Intelligence fixture timing: ${cachedScan.durationMs}ms ${cachedScan.diagnostics || "no-trace"}`);
       assert.equal(
         cachedScan.status,
         "passed",
