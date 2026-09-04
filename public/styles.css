@@ -204,9 +204,7 @@ main { width: min(1540px, calc(100% - clamp(24px, 6vw, 92px))); min-height: calc
 .conversation-head { min-height: 78px; padding: 14px 18px; display: flex; align-items: center; justify-content: space-between; gap: 20px; border-bottom: 1px solid var(--line); }
 .conversation-head h1, .section-header h1 { margin: 4px 0 0; font-size: clamp(18px, 2vw, 25px); letter-spacing: -.04em; }
 .conversation-controls { display: flex; align-items: end; gap: 10px; }
-.conversation-controls > label:first-child span { display: block; margin-bottom: 5px; color: var(--dim); font: 650 7px ui-monospace, monospace; letter-spacing: .12em; }
 select, input, textarea { border: 1px solid var(--line); color: var(--text); background: var(--bg); }
-.conversation-controls select { width: min(34vw, 420px); height: 34px; padding: 0 28px 0 9px; font: 9px ui-monospace, monospace; }
 .compact-toggle { height: 34px; padding: 0 10px; display: flex; align-items: center; border: 1px solid var(--line); color: var(--dim); font: 650 8px ui-monospace, monospace; cursor: pointer; }
 .compact-toggle:has(input:checked) { color: var(--mint); border-color: #2a6258; background: rgba(156, 244, 203, .04); }
 .text-button { border: 0; color: var(--dim); background: transparent; font: 650 8px ui-monospace, monospace; letter-spacing: .1em; }
@@ -255,6 +253,12 @@ select, input, textarea { border: 1px solid var(--line); color: var(--text); bac
 .composer-bar { min-height: 43px; padding: 5px 7px 7px 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .composer-bar > span { color: var(--dim); font: 8px ui-monospace, monospace; }
 .composer-bar > div { display: flex; gap: 6px; }
+.composer-model { margin: -2px 14px 14px; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.composer-model label { width: min(100%, 420px); display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px; }
+.composer-model label > span { color: var(--dim); font: 650 7px ui-monospace, monospace; letter-spacing: .12em; white-space: nowrap; }
+.composer-model select { width: 100%; min-width: 0; height: 34px; padding: 0 28px 0 9px; font: 9px ui-monospace, monospace; }
+.assistant-disclosure { width: min(100%, 420px); margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.assistant-disclosure strong { color: var(--text); font-weight: 650; }
 .send-button, .stop-button, .mic-mini, .primary-button, .secondary-button, .small-button {
   height: 34px;
   padding: 0 13px;
@@ -800,7 +804,6 @@ dialog::backdrop { background: rgba(1, 7, 9, .82); backdrop-filter: blur(4px); }
   footer { margin-bottom: 54px; }
   .conversation-head { align-items: flex-start; }
   .conversation-controls { flex-wrap: wrap; justify-content: flex-end; }
-  .conversation-controls select { width: 300px; }
   .loadout-grid { grid-template-columns: 320px minmax(0, 1fr); }
   .loadout-workbench-grid { grid-template-columns: 1fr; }
   .document-core-body { grid-template-columns: 1fr; }
@@ -847,6 +850,7 @@ dialog::backdrop { background: rgba(1, 7, 9, .82); backdrop-filter: blur(4px); }
 }
 
 @media (max-width: 560px) {
+  main { padding-bottom: 58px; }
   .topbar { min-height: 64px; }
   .brand-glyph { width: 34px; height: 34px; }
   .brand strong { font-size: 13px; }
@@ -870,13 +874,15 @@ dialog::backdrop { background: rgba(1, 7, 9, .82); backdrop-filter: blur(4px); }
   .integration-row { grid-template-columns: 31px minmax(0, 1fr) 8px; }
   .integration-row > i { display: block; }
   .conversation-head { display: block; }
-  .conversation-controls { margin-top: 12px; display: grid; grid-template-columns: 1fr auto auto; align-items: end; }
-  .conversation-controls select { width: 100%; }
+  .conversation-controls { margin-top: 12px; display: flex; justify-content: flex-end; }
   .chat-messages { padding: 18px 12px; }
   .message { grid-template-columns: 29px minmax(0, 1fr); gap: 8px; }
   .message.user { grid-template-columns: minmax(0, 1fr) 29px; }
   .avatar { width: 29px; height: 29px; }
   .composer { margin: 0 8px 8px; }
+  .composer-model { margin: -2px 8px 12px; align-items: stretch; }
+  .composer-model label { width: 100%; grid-template-columns: 1fr; gap: 6px; }
+  .assistant-disclosure { width: 100%; font-size: 12px; }
   .composer-bar > span { display: none; }
   .composer-bar { justify-content: flex-end; }
   .approval-card { grid-template-columns: 1fr; }

@@ -19,13 +19,14 @@ const MAX_PLAYBOOK_BYTES = 128 * 1024;
 const MAX_PLAN_BYTES = 4 * 1024 * 1024;
 const MAX_STDOUT_BYTES = 1024 * 1024;
 const MAX_STDERR_BYTES = 64 * 1024;
-const PROCESS_TIMEOUT_MS = 30_000;
+const PROCESS_TIMEOUT_MS = 60_000;
 const MAX_FINDINGS = 500;
 const MAX_ANNOTATIONS = 2_000;
 const MAX_TRAVERSAL_ENTRIES = 100_000;
 const SCAN_SKIPPED_DIRECTORIES = new Set([
   ".git",
   ".next",
+  ".pnpm-store",
   ".venv",
   "__pycache__",
   "build",
@@ -44,15 +45,18 @@ const PINNED_SOURCE = Object.freeze({
   artifactSha256: "4225e902d65ebffe9e9af945376c9b6b459f7bccc4c67a04dc80a6ad01d13432",
   excluded: Object.freeze(["hooks/", "scripts/bump-version.ps1"]),
   normalization: Object.freeze(["line-endings-per-project-gitattributes", "trim-trailing-whitespace"]),
+  adaptations: Object.freeze([
+    "scripts/scan-annotations.ps1: bounded enumeration skips ignored directories and reparse points before recursion",
+  ]),
 });
 
 const RUNTIME_FILE_SHA256 = Object.freeze({
-  "SOURCE.json": "40a392d2e176ecd127c8e91b487c9c7073d090e496218ec76e35c269c059cf53",
+  "SOURCE.json": "3d36f4d0ec50aabaab003e36c136fb816a31bf94a6b9d1101f43784330549506",
   ".codex-plugin/plugin.json": "5785bb48f9be98902e281f1c3ccf7f8dd3d7a030eac926659358f4fa24a21f45",
   "references/execution-modes/zuri-v2.catalog.json": "96f0719b93a9f7addbbc101b0e14f4025cf03788b54387b454f29a60d3675273",
-  "scripts/scan-annotations.ps1": "46f6da86768377121a6d4e5887dbeb93c871d38f02d3006bd22851c7b8b78e21",
-  "scripts/validate-graph.ps1": "d13b1104b213018ac9416db45e7196b6d084af9a528f6b588866b6d23344f92a",
-  "scripts/validate-plan.ps1": "6ad066124f6e4dc69346df703449f0dbf7685248e20bfda09881b852246d697a",
+  "scripts/scan-annotations.ps1": "a6ea2f9299d49e7da1276286c297a03b9925512556b288ae8872177fd328b033",
+  "scripts/validate-graph.ps1": "4ca070f89d45bf74518670db366e97c0f6ef952350de648e6debd841b4d36efc",
+  "scripts/validate-plan.ps1": "c303935b9aa000e9a8dcbf7e5bc6d91c46af2b9417e76124ebd7438845e9ecd4",
   "skills/doc-architect/SKILL.md": "432a04564efc87fc421e110589b33b83a4e762bd5524c173deb389070f452ec0",
   "skills/doc-preflight/SKILL.md": "c76b7741f422582b383d66e555c65d423dc462a7afca987a8b72f33d1d7691ed",
   "skills/doc-graph/SKILL.md": "00c22e03452d201866d8f70585a65eaffdadf617e13d8a68ae1dc5387e3fa8a9",
@@ -209,7 +213,11 @@ function assertRegularVendoredFile(capabilityRoot, relativePath, maxBytes = Numb
   const normalizedRelativePath = relativePath.replaceAll("\\", "/");
   const expectedSha256 = RUNTIME_FILE_SHA256[normalizedRelativePath];
   if (expectedSha256) {
-    const actualSha256 = createHash("sha256").update(readFileSync(actual)).digest("hex");
+    const contents = readFileSync(actual);
+    const digestInput = normalizedRelativePath.endsWith(".ps1")
+      ? Buffer.from(contents.toString("utf8").replace(/\r\n?/g, "\n"), "utf8")
+      : contents;
+    const actualSha256 = createHash("sha256").update(digestInput).digest("hex");
     if (actualSha256 !== expectedSha256) failIntegrity(`${relativePath} does not match its pinned SHA-256`);
   }
   return actual;
@@ -227,6 +235,7 @@ function validateSourceMetadata(source) {
   const expected = PINNED_SOURCE;
   const excluded = Array.isArray(source.excluded) ? [...source.excluded].sort() : [];
   const normalization = Array.isArray(source.normalization) ? [...source.normalization].sort() : [];
+  const adaptations = Array.isArray(source.adaptations) ? [...source.adaptations].sort() : [];
   if (
     source.sourceUrl !== expected.sourceUrl
     || source.version !== expected.version
@@ -236,6 +245,7 @@ function validateSourceMetadata(source) {
     || source.artifact?.sha256 !== expected.artifactSha256
     || !compareStringLists(excluded, [...expected.excluded].sort())
     || !compareStringLists(normalization, [...expected.normalization].sort())
+    || !compareStringLists(adaptations, [...expected.adaptations].sort())
   ) {
     failIntegrity("SOURCE.json does not match the pinned v1.3.0 release");
   }
@@ -860,6 +870,7 @@ export function createDocumentIntelligence({ rootDir = MODULE_ROOT, capabilityDi
         commit: PINNED_SOURCE.commit,
         artifactSha256: PINNED_SOURCE.artifactSha256,
         normalization: [...PINNED_SOURCE.normalization],
+        adaptations: [...PINNED_SOURCE.adaptations],
         upstreamLicenseDeclaration: "MIT",
         licenseFilePresentUpstream: false,
       },

@@ -31,3 +31,19 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.bak
+
+# Windows desktop build and release outputs
+src-tauri/target/
+src-tauri/gen/
+desktop/stage/
+desktop/runtime/node/node.exe
+desktop/runtime/node/LICENSE
+desktop/runtime/node/LICENSE.txt
+desktop/runtime/node/node.lib
+desktop/runtime/node/node_pdb.*
+desktop/runtime/node/*.zip
+desktop-release-artifacts/
+release-artifacts/
+*.msi
+*.sha256
+*-sbom.json

@@ -1,0 +1,3 @@
+# Cargo/Tauri build outputs and generated permission schemas.
+/target/
+/gen/

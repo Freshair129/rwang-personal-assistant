@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { realpathSync } from "node:fs";
-import { appendFile, cp, mkdtemp, rm } from "node:fs/promises";
+import { appendFile, cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,7 +11,90 @@ import {
 } from "../document-intelligence.mjs";
 
 const rootDir = realpathSync(path.dirname(fileURLToPath(new URL("../package.json", import.meta.url))));
+const adapterSource = await readFile(path.join(rootDir, "document-intelligence.mjs"), "utf8");
+assert.match(adapterSource, /SCAN_SKIPPED_DIRECTORIES[\s\S]*?"\.pnpm-store"[\s\S]*?\]\);/,
+  "Document Intelligence must skip the gitignored pnpm dependency cache");
+assert.match(adapterSource, /const PROCESS_TIMEOUT_MS = 60_000;/,
+  "Windows PowerShell actions must keep the approved bounded hosted-runner deadline");
+const scannerSource = await readFile(
+  path.join(rootDir, "capabilities", "rwang-document-intelligence", "scripts", "scan-annotations.ps1"),
+  "utf8",
+);
+assert.doesNotMatch(scannerSource, /Get-ChildItem[^\r\n]*-Recurse/i,
+  "the scanner must prune ignored directories and reparse points before recursion");
+assert.doesNotMatch(scannerSource, /Get-ChildItem/i,
+  "the scanner must not materialize PowerShell provider entries before pruning");
+assert.match(scannerSource, /Directory\]::EnumerateDirectories/,
+  "the scanner must enumerate directory names before reading child attributes");
+assert.doesNotMatch(scannerSource, /New-Object\s+['"]System\.Collections\.Generic\.Stack/i,
+  "the scanner must not depend on cmdlet resolution to initialize traversal state");
+assert.match(scannerSource, /Stack\[string\]\]::new\(\)/,
+  "the scanner must construct traversal state through the static .NET path");
+assert.match(scannerSource, /\nexit 0\s*$/,
+  "the scanner must terminate explicitly after flushing its final output pipeline");
+assert.doesNotMatch(scannerSource, /Resolve-Path\s+\$Path/i,
+  "the scanner must not resolve its root through the PowerShell provider");
+assert.match(scannerSource, /Path\]::GetFullPath\(\$Path\)/,
+  "the scanner must resolve its root without provider traversal");
+assert.match(scannerSource, /FileAttributes\]::ReparsePoint/,
+  "the scanner must reject reparse points before enqueueing directories");
 const capability = createDocumentIntelligence({ rootDir });
+
+async function verifyTraversalLinkPolicy() {
+  const fixtureRoot = await mkdtemp(path.join(os.tmpdir(), "rwang-document-intelligence-links-"));
+  const cachedRoot = path.join(fixtureRoot, "cached-root");
+  const unsafeRoot = path.join(fixtureRoot, "unsafe-root");
+  const outsideRoot = path.join(fixtureRoot, "outside-root");
+  await Promise.all([
+    mkdir(path.join(cachedRoot, ".pnpm-store"), { recursive: true }),
+    mkdir(unsafeRoot, { recursive: true }),
+    mkdir(outsideRoot, { recursive: true }),
+  ]);
+  await writeFile(path.join(cachedRoot, ".pnpm-store", "ignored.ps1"), "# @req FR-001\n", "utf8");
+
+  try {
+    try {
+      await symlink(
+        path.join(outsideRoot, "missing-global-store-project"),
+        path.join(cachedRoot, ".pnpm-store", "dangling-project"),
+        "junction",
+      );
+      await symlink(outsideRoot, path.join(unsafeRoot, "outside-link"), "junction");
+    } catch (error) {
+      if (["EACCES", "EPERM", "ENOSYS", "UNKNOWN"].includes(error?.code)) {
+        console.log(`RWANG Document Intelligence link policy test skipped: ${error.code}`);
+        return;
+      }
+      throw error;
+    }
+
+    const cachedCapability = createDocumentIntelligence({ rootDir: cachedRoot });
+    try {
+      const cachedScan = await cachedCapability.scanAnnotations();
+      assert.equal(
+        cachedScan.status,
+        "passed",
+        `dangling links inside .pnpm-store must be outside the scan boundary: ${JSON.stringify(cachedScan)}`,
+      );
+      assert.deepEqual(cachedScan.report.annotations, [], "regular files inside .pnpm-store must remain outside the scan boundary");
+    } finally {
+      await cachedCapability.close();
+    }
+
+    const unsafeCapability = createDocumentIntelligence({ rootDir: unsafeRoot });
+    try {
+      await assert.rejects(
+        unsafeCapability.scanAnnotations(),
+        (error) => error instanceof DocumentIntelligenceError && error.code === "UNSAFE_REPOSITORY_PATH",
+        "links outside the application root must remain fail-closed",
+      );
+    } finally {
+      await unsafeCapability.close();
+    }
+  } finally {
+    await rm(fixtureRoot, { recursive: true, force: true });
+  }
+}
 
 try {
   const snapshot = capability.snapshot({ local: true });
@@ -29,6 +112,9 @@ try {
   assert.equal(snapshot.source.tag, "v1.3.0");
   assert.equal(snapshot.source.commit, "7354738094432fed22d6e00568315e1a1bd8fe15");
   assert.equal(snapshot.source.artifactSha256, "4225e902d65ebffe9e9af945376c9b6b459f7bccc4c67a04dc80a6ad01d13432");
+  assert.deepEqual(snapshot.source.adaptations, [
+    "scripts/scan-annotations.ps1: bounded enumeration skips ignored directories and reparse points before recursion",
+  ]);
   assert.equal(snapshot.skills.length, 7);
   assert.equal(new Set(snapshot.skills.map(({ id }) => id)).size, 7);
   assert.equal(snapshot.skills.every(({ core }) => core === true), true);
@@ -50,7 +136,12 @@ try {
   try {
     const copiedPack = path.join(tamperedRoot, "pack");
     await cp(path.join(rootDir, "capabilities", "rwang-document-intelligence"), copiedPack, { recursive: true });
-    await appendFile(path.join(copiedPack, "scripts", "scan-annotations.ps1"), "\n# tampered\n", "utf8");
+    const copiedScanner = path.join(copiedPack, "scripts", "scan-annotations.ps1");
+    const scannerText = await readFile(copiedScanner, "utf8");
+    await writeFile(copiedScanner, scannerText.replace(/\r\n?/g, "\r\n"), "utf8");
+    const crlfCapability = createDocumentIntelligence({ rootDir, capabilityDir: copiedPack });
+    await crlfCapability.close();
+    await appendFile(copiedScanner, "\r\n# tampered\r\n", "utf8");
     assert.throws(
       () => createDocumentIntelligence({ rootDir, capabilityDir: copiedPack }),
       (error) => error instanceof DocumentIntelligenceError && error.code === "DOCUMENT_INTELLIGENCE_INTEGRITY",
@@ -89,6 +180,8 @@ try {
   }
 
   if (process.platform === "win32") {
+    await verifyTraversalLinkPolicy();
+
     const scan = await capability.scanAnnotations();
     assert.equal(scan.operation, "scan-annotations");
     assert.equal(scan.readOnly, true);

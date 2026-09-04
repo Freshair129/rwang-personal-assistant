@@ -12,6 +12,14 @@ machine-readable provenance. Text files are normalized to this project's
 declared line endings and trailing whitespace is removed; runtime hashes cover
 the normalized copies actually executed by RWANG.
 
+RWANG applies one local security adaptation to `scripts/scan-annotations.ps1`:
+directory enumeration skips exact ignored-directory names and reparse points
+before recursion. This prevents dependency-cache junctions from crossing the
+declared scan boundary. The adaptation is declared in `SOURCE.json` and the
+executed copy remains covered by the adapter's pinned runtime SHA-256.
+PowerShell source is hashed after canonical LF newline normalization so the
+same reviewed text has one digest when Git materializes LF or declared CRLF.
+
 Upstream metadata declares the package license as MIT, but the pinned upstream
 revision does not currently contain a `LICENSE` file. This notice records that
 discrepancy; it does not add, replace, or reinterpret an upstream license.

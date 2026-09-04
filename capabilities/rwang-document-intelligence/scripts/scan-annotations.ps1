@@ -37,7 +37,7 @@ $ErrorActionPreference = "Stop"
 $Extensions = @("*.ts", "*.tsx", "*.js", "*.jsx", "*.py", "*.go", "*.java", "*.rs", "*.cs", "*.ps1")
 
 # Directories to skip
-$SkipDirs = @("node_modules", "__pycache__", ".venv", "venv", ".git", "dist", "build", ".next", "coverage")
+$SkipDirs = @("node_modules", ".pnpm-store", "__pycache__", ".venv", "venv", ".git", "dist", "build", ".next", "coverage")
 
 # Structured annotations are source comments, never prose/string literals.
 # Requirement/spec annotations carry registered requirement IDs; design can
@@ -64,42 +64,50 @@ function Get-FilesByFilter {
     param([string]$RootPath, [string[]]$Filters)
 
     $files = @()
-    foreach ($ext in $Filters) {
-        $found = Get-ChildItem -Path $RootPath -Filter $ext -Recurse -File -ErrorAction SilentlyContinue |
-            Where-Object {
-                $skip = $false
-                foreach ($dir in $SkipDirs) {
-                    if ($_.FullName -match [regex]::Escape($dir)) {
-                        $skip = $true
-                        break
-                    }
+    $pending = [System.Collections.Generic.Stack[string]]::new()
+    $pending.Push($RootPath)
+
+    while ($pending.Count -gt 0) {
+        $current = $pending.Pop()
+        try {
+            $currentAttributes = [System.IO.File]::GetAttributes($current)
+            if (($currentAttributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) { continue }
+            $filePaths = @([System.IO.Directory]::EnumerateFiles($current))
+            $directoryPaths = @([System.IO.Directory]::EnumerateDirectories($current))
+        }
+        catch {
+            continue
+        }
+
+        foreach ($filePath in $filePaths) {
+            $fileName = [System.IO.Path]::GetFileName($filePath)
+            foreach ($filter in $Filters) {
+                if ($fileName -like $filter) {
+                    $files += [System.IO.FileInfo]::new($filePath)
+                    break
                 }
-                -not $skip
             }
-        $files += $found
+        }
+
+        foreach ($directoryPath in $directoryPaths) {
+            $directoryName = [System.IO.Path]::GetFileName($directoryPath)
+            if ($SkipDirs -contains $directoryName) { continue }
+            try {
+                $attributes = [System.IO.File]::GetAttributes($directoryPath)
+                if (($attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) { continue }
+                $pending.Push($directoryPath)
+            }
+            catch {
+                continue
+            }
+        }
     }
     return $files
 }
 
 function Get-SourceFiles {
     param([string]$RootPath)
-
-    $files = @()
-    foreach ($ext in $Extensions) {
-        $found = Get-ChildItem -Path $RootPath -Filter $ext -Recurse -File -ErrorAction SilentlyContinue |
-            Where-Object {
-                $skip = $false
-                foreach ($dir in $SkipDirs) {
-                    if ($_.FullName -match [regex]::Escape($dir)) {
-                        $skip = $true
-                        break
-                    }
-                }
-                -not $skip
-            }
-        $files += $found
-    }
-    return $files
+    return @(Get-FilesByFilter -RootPath $RootPath -Filters $Extensions)
 }
 
 function Scan-File {
@@ -328,7 +336,10 @@ function Scan-TestSpecFile {
 }
 
 # Main execution
-$resolvedPath = (Resolve-Path $Path).Path
+$resolvedPath = [System.IO.Path]::GetFullPath($Path)
+if (-not [System.IO.Directory]::Exists($resolvedPath)) {
+    throw "Scan root does not exist or is not a directory"
+}
 $files = Get-SourceFiles -RootPath $resolvedPath
 $mermaidFiles = Get-FilesByFilter -RootPath $resolvedPath -Filters @("*.mmd")
 $testSpecFiles = Get-FilesByFilter -RootPath $resolvedPath -Filters @("*.test.md")
@@ -418,3 +429,5 @@ if ($Format -eq "json") {
         Write-Host "No annotations found." -ForegroundColor Red
     }
 }
+
+exit 0

@@ -4,6 +4,12 @@ RWANG คือผู้ช่วยส่วนตัวแบบ local-first �
 
 โฟลเดอร์และชื่อ package ของโปรเจกต์คือ `C:\Users\pc\workspace\rwang-local-assistant`
 
+## ทำไมชื่ออาหวัง?
+
+ชื่อ “อาหวัง” เป็น AI disclosure by name: ระบบสนทนาถูกสร้างมาให้ช่วย พูดคุย และบางครั้งอาจตอบให้ถูกใจโดยไม่ได้แปลว่าคำตอบนั้นถูกเสมอ ผู้ใช้จึงควรใช้ RWANG เป็นผู้ช่วย ตรวจหลักฐานเมื่อเรื่องสำคัญ และเก็บการตัดสินใจสุดท้ายไว้กับตัวเอง
+
+รายละเอียด persona, Agreement Contract และ acceptance criteria อยู่ใน [PRD-RWANG-PERSONA.md](docs/PRD-RWANG-PERSONA.md)
+
 ## ความสามารถหลัก
 
 - แชทกับโมเดล Ollama แบบ streaming พร้อมเลือก ดาวน์โหลด โหลด และ unload โมเดล
@@ -126,6 +132,8 @@ Face Profile และ Voice Profile เป็นการเทียบ templa
 
 RWANG รวม [Freshair129/rwang-plugin](https://github.com/Freshair129/rwang-plugin) เป็นความสามารถหลักแบบ local-first โดย pin ที่ release `v1.3.0` และ commit `7354738094432fed22d6e00568315e1a1bd8fe15` สำเนาที่ใช้รันอยู่ใน `capabilities/rwang-document-intelligence/` จึงไม่ดึงหรือรันโค้ดจาก branch `main` อัตโนมัติ
 
+สำเนานี้มี local security adaptation ที่ประกาศใน `SOURCE.json`: annotation scanner จะตัด ignored directories และ reparse points ก่อน recursion เพื่อไม่เดินเข้า dependency-cache junction; ไฟล์ที่รันจริงยังถูกตรวจด้วย SHA-256 แบบ pin
+
 Core pack ประกอบด้วย `doc-architect`, `doc-preflight`, `doc-graph`, `exec-plan`, `implementation-plan`, `rwang-self-audit` และ `subagent-driven` หน้า Loadout แสดง source/version/commit และให้เครื่องหลักกด **RUN SELF AUDIT** เพื่อสแกน annotation และตรวจ graph แบบอ่านอย่างเดียว Agent สามารถอ่าน catalog/playbook และเรียก validator ที่กำหนดไว้ล่วงหน้าได้ แต่ไม่มี arbitrary shell tool
 
 - subprocess ใช้ PowerShell executable และ argument แบบตายตัวโดยไม่ผ่าน shell
@@ -213,3 +221,62 @@ git push -u origin main
 ```
 
 หากใช้ SSH ให้เปลี่ยน remote เป็น `git@github.com:USERNAME/rwang-local-assistant.git` และตรวจด้วย `git remote -v` ก่อน push
+
+## Windows Desktop (Tauri) และ release pipeline
+
+RWANG มี Windows-first Tauri v2 shell ที่คง browser/PWA สำหรับ source checkout
+ไว้เป็น fallback Desktop host จะ launch Node sidecar บน loopback แบบเลือกพอร์ต
+ชั่วคราว รอ JSON `ready` และ `GET /api/health` ก่อนเปิด WebView โดยแยก
+resource, data, workspace และ capability roots ออกจากกัน Packaged desktop
+ไม่คัดลอกหรืออ่าน `.env` / `.env.*` จาก repository; Tauri กำหนด runtime roots
+และ sidecar รับเฉพาะ process environment ที่ส่งเข้ามา ส่วน `.env` ใช้กับ
+`pnpm start` ใน source checkout เท่านั้น การเปิด
+`/desktop-diagnostics.html` ใช้ตรวจ media parity แบบ on-device/no-telemetry
+บน exact loopback sidecar origin (ไม่ใช่ route access-control boundary)
+และ active camera/microphone/display จะเริ่มได้จากปุ่มผู้ใช้เท่านั้น
+
+คำสั่งตรวจและ build ใน Windows developer shell:
+
+```powershell
+pnpm install --frozen-lockfile
+pnpm check
+pnpm desktop:runtime
+pnpm desktop:stage
+pnpm test:security
+pnpm test:desktop-package
+pnpm test:model-selector-layout
+pnpm test:desktop-contract
+git diff --check
+cargo fmt --all --manifest-path src-tauri/Cargo.toml -- --check
+cargo check --manifest-path src-tauri/Cargo.toml
+cargo check --manifest-path src-tauri/Cargo.toml --features autostart
+cargo test --manifest-path src-tauri/Cargo.toml
+pnpm exec tauri build --no-bundle       # PR/source gate
+pnpm exec tauri build --bundles nsis    # local unsigned installer
+```
+
+`.github/workflows/desktop.yml` รันชุดตรวจเดียวกันบน `windows-latest` ด้วย
+Node v24.20.0, pnpm 11 และ Rust MSVC ทุก pull request/main push; การ push tag `v*`
+หรือกด workflow dispatch พร้อม `build_release=true` จะตรวจ archive/Node SHA256
+และ LICENSE แล้วสร้าง NSIS artifact พร้อม `SHA256SUMS.txt` เป็น workflow
+artifact
+ไม่มีขั้นตอน auto-publish, auto-push หรือสร้าง GitHub Release ให้ตรวจและ
+ดาวน์โหลดด้วยตนเองก่อนเสมอ Tauri resource map ชี้เฉพาะ
+`desktop/stage/rwang`; pipeline จะไม่ copy Node จาก PATH เป็น fallback
+และจะ fail closed เมื่อ archive หรือ digest ไม่ตรงสเปกทางการ
+
+คำเตือน: installer จาก workflow นี้ยัง unsigned เพราะ repository ยังไม่ได้
+ตั้ง signing secret/ใบรับรอง จึงอาจแสดง SmartScreen warning และยังไม่ใช่
+production release ขั้น CI ปัจจุบันเป็น build gate บนเครื่องที่มี developer
+toolchain ไม่ใช่ clean-machine gate ต้องทดสอบ installer ด้วยตนเองใน Windows 11
+x64 VM และ Windows 10 x64 VM รุ่นที่ประกาศรองรับ ตรวจ checksum และเซ็นด้วย
+กระบวนการ release ที่อนุมัติก่อนแจกจ่ายจริง
+
+Rollback ทำได้โดยเก็บ desktop data root
+`%LOCALAPPDATA%\com.freshair129.rwang\data` ไว้ ไม่ลบ config/queue ตอนถอน
+installer แล้วติดตั้ง installer รุ่นก่อนหน้า ส่วน browser/PWA ยังคงใช้ state แยก
+ที่ `%LOCALAPPDATA%\RWANG\data` สำหรับเครื่อง developer ที่มี source checkout
+สามารถ fallback ผ่าน `pnpm start` / `Start RWANG.cmd` ได้ ผู้ใช้ที่มีเพียง
+packaged app ต้อง rollback ด้วย installer รุ่นก่อนหน้า ไม่ควรถือว่ามี pnpm หรือ
+source tree อยู่ในเครื่อง ระบบยังไม่มี auto-update, auto-rollback หรือการ publish
+อัตโนมัติในขั้นตอนนี้

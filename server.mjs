@@ -1,48 +1,270 @@
 import http from "node:http";
 import https from "node:https";
-import { appendFile, readFile, readdir, rename, stat, statfs, writeFile } from "node:fs/promises";
+import { createHmac } from "node:crypto";
+import {
+  appendFile,
+  lstat,
+  mkdir,
+  readFile,
+  readdir,
+  realpath,
+  rename,
+  stat,
+  statfs,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createRwangCore } from "./rwang.mjs";
+import { createRwangCore, migrateLegacyMutableData } from "./rwang.mjs";
 import { createRemoteCore } from "./remote.mjs";
 import { createSpotlightIndex, handleSpotlightApi } from "./spotlight.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const publicDir = path.join(__dirname, "public");
-const stateFile = path.join(__dirname, ".queue-state.json");
-const stateTempFile = path.join(__dirname, ".queue-state.tmp");
-const logFile = path.join(__dirname, "rwang.log");
 const blobsDir = path.join(process.env.USERPROFILE || "C:\\Users\\pc", ".ollama", "models", "blobs");
 const OLLAMA = "http://127.0.0.1:11434";
-const PORT = Number(process.env.OLLAMA_CENTER_PORT || 4173);
+const DEFAULT_PORT = 4173;
 const TRUE_VALUES = new Set(["1", "true", "yes", "on"]);
-const ALLOW_INSECURE_LAN = TRUE_VALUES.has(String(process.env.RWANG_ALLOW_INSECURE_LAN || "").trim().toLowerCase());
+const DESKTOP_NONCE_PATTERN = /^[0-9a-fA-F]{64}$/;
+const DESKTOP_CHALLENGE_PATTERN = /^[0-9a-f]{64}$/;
+
+// Runtime roots intentionally remain unset until startup validation completes. This
+// prevents a malformed environment from causing writes to the source checkout.
+let resourceDir = "";
+let dataDir = "";
+let workspaceDir = "";
+let capabilityDir = "";
+let publicDir = "";
+let stateFile = "";
+let stateTempFile = "";
+let logFile = "";
+let PORT = DEFAULT_PORT;
+let TLS_OPTIONS = null;
+let TRANSPORT_PROTOCOL = "http";
+let HOST = "127.0.0.1";
+let PUBLIC_ORIGIN = "";
+let ICE_SERVERS = [];
+let ALLOWED_HOSTS = new Set();
+let server = null;
+let DESKTOP_MODE = false;
+let DESKTOP_NONCE = "";
+const runtime = { state: "starting", readyAt: null };
+const startupAbortController = new AbortController();
+let resolveStartupFinished;
+const startupFinished = new Promise((resolve) => {
+  resolveStartupFinished = resolve;
+});
 
 function cleanEnv(value, max = 2048) {
   return String(value || "").trim().slice(0, max);
+}
+
+function startupError(code, message) {
+  const error = new Error(message);
+  error.code = code;
+  error.startupSafeMessage = message;
+  return error;
+}
+
+function startupShutdownError() {
+  return startupError("STARTUP_CANCELLED", "RWANG startup cancelled during shutdown");
+}
+
+function assertStartupActive() {
+  if (shuttingDown || startupAbortController.signal.aborted) throw startupShutdownError();
+}
+
+function configureDesktopReadiness() {
+  DESKTOP_MODE = String(process.env.RWANG_DESKTOP || "").trim() === "1";
+  DESKTOP_NONCE = "";
+  if (!DESKTOP_MODE) return;
+
+  // The nonce is deliberately read without cleanEnv(): surrounding whitespace
+  // must not be silently accepted for an authentication secret.
+  const nonce = String(process.env.RWANG_DESKTOP_NONCE ?? "");
+  if (!DESKTOP_NONCE_PATTERN.test(nonce)) {
+    throw startupError(
+      "INVALID_DESKTOP_NONCE",
+      "RWANG_DESKTOP_NONCE must be exactly 64 hexadecimal characters",
+    );
+  }
+  DESKTOP_NONCE = nonce;
+}
+
+function desktopHealthProof(req) {
+  if (!DESKTOP_MODE) return "";
+  const challenge = req.headers["x-rwang-desktop-challenge"];
+  if (typeof challenge !== "string" || !DESKTOP_CHALLENGE_PATTERN.test(challenge)) return null;
+  return createHmac("sha256", Buffer.from(DESKTOP_NONCE, "hex"))
+    .update(Buffer.from(challenge, "hex"))
+    .digest("hex");
+}
+
+function isContained(parent, child, { strict = false } = {}) {
+  const relative = path.relative(parent, child);
+  if (!relative) return !strict;
+  return !relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative);
+}
+
+function hasUnsafePathNamespace(value) {
+  const normalized = String(value || "").replaceAll("/", "\\").toLowerCase();
+  return normalized.startsWith("\\\\?\\")
+    || normalized.startsWith("\\\\.\\")
+    || normalized.startsWith("\\\\\\?\\");
+}
+
+function normalizeConfiguredPath(name, supplied) {
+  if (typeof supplied !== "string" || !supplied.trim() || !path.isAbsolute(supplied.trim())) {
+    throw startupError(`INVALID_${name}`, `${name} must be an absolute path`);
+  }
+  const requested = path.resolve(supplied.trim());
+  if (hasUnsafePathNamespace(requested)) {
+    throw startupError(`INVALID_${name}`, `${name} uses an unsupported path namespace`);
+  }
+  return requested;
+}
+
+async function resolveConfiguredDirectory(name, supplied, { create = false } = {}) {
+  const requested = normalizeConfiguredPath(name, supplied);
+  try {
+    if (create) await mkdir(requested, { recursive: true });
+    const requestedStats = await lstat(requested);
+    if (!requestedStats.isDirectory() || requestedStats.isSymbolicLink()) {
+      throw startupError(`INVALID_${name}`, `${name} must be a directory`);
+    }
+    const canonical = await realpath(requested);
+    const canonicalStats = await lstat(canonical);
+    if (!canonicalStats.isDirectory() || canonicalStats.isSymbolicLink()) {
+      throw startupError(`INVALID_${name}`, `${name} must be a directory`);
+    }
+    return canonical;
+  } catch (error) {
+    if (error?.code === `INVALID_${name}`) throw error;
+    throw startupError(`INVALID_${name}`, `${name} is unavailable or inaccessible`);
+  }
+}
+
+async function canonicalizeProspectiveConfiguredDirectory(name, requested) {
+  const missingSegments = [];
+  let current = requested;
+  while (true) {
+    try {
+      const canonicalAncestor = await realpath(current);
+      const ancestorStats = await lstat(canonicalAncestor);
+      if (!ancestorStats.isDirectory() || ancestorStats.isSymbolicLink()) {
+        throw startupError(`INVALID_${name}`, `${name} must descend from a directory`);
+      }
+      return path.join(canonicalAncestor, ...missingSegments.reverse());
+    } catch (error) {
+      if (error?.code !== "ENOENT") {
+        if (error?.code === `INVALID_${name}`) throw error;
+        throw startupError(`INVALID_${name}`, `${name} is unavailable or inaccessible`);
+      }
+      const parent = path.dirname(current);
+      if (parent === current) {
+        throw startupError(`INVALID_${name}`, `${name} has no accessible ancestor`);
+      }
+      missingSegments.push(path.basename(current));
+      current = parent;
+    }
+  }
+}
+
+function assertDataDirectorySeparate(dataPath, otherPath) {
+  if (isContained(otherPath, dataPath) || isContained(dataPath, otherPath)) {
+    throw startupError("INVALID_DATA_DIR", "RWANG_DATA_DIR must be separate from RESOURCE_DIR and WORKSPACE_DIR");
+  }
+}
+
+function pathsMatch(left, right) {
+  const normalizedLeft = path.resolve(left);
+  const normalizedRight = path.resolve(right);
+  return process.platform === "win32"
+    ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase()
+    : normalizedLeft === normalizedRight;
+}
+
+async function resolveContainedRegularFile(root, requested, errorCode, message) {
+  let canonicalRoot;
+  try {
+    canonicalRoot = await realpath(root);
+    const rootStats = await lstat(canonicalRoot);
+    if (!rootStats.isDirectory() || rootStats.isSymbolicLink()) throw new Error("invalid root");
+  } catch {
+    throw startupError(errorCode, message);
+  }
+
+  const lexicalPath = path.resolve(requested);
+  if (!isContained(canonicalRoot, lexicalPath, { strict: true })) {
+    throw startupError(errorCode, message);
+  }
+
+  let requestedStats;
+  try {
+    requestedStats = await lstat(lexicalPath);
+  } catch {
+    throw startupError(errorCode, message);
+  }
+  if (requestedStats.isSymbolicLink() || !requestedStats.isFile()) {
+    throw startupError(errorCode, message);
+  }
+
+  let canonicalPath;
+  try {
+    canonicalPath = await realpath(lexicalPath);
+    const canonicalStats = await lstat(canonicalPath);
+    if (canonicalStats.isSymbolicLink() || !canonicalStats.isFile()) throw new Error("invalid target");
+  } catch {
+    throw startupError(errorCode, message);
+  }
+  // A canonical path change indicates a link/reparse traversal. Reject it even
+  // when the resolved target happens to remain below the configured root.
+  if (!pathsMatch(lexicalPath, canonicalPath)
+    || !isContained(canonicalRoot, canonicalPath, { strict: true })) {
+    throw startupError(errorCode, message);
+  }
+  return canonicalPath;
+}
+
+function parsePort(value) {
+  const supplied = cleanEnv(value, 16) || String(DEFAULT_PORT);
+  if (!/^\d+$/.test(supplied)) {
+    throw startupError("INVALID_PORT", "OLLAMA_CENTER_PORT must be an integer from 1 to 65535");
+  }
+  const port = Number(supplied);
+  if (!Number.isSafeInteger(port) || port < 1 || port > 65535) {
+    throw startupError("INVALID_PORT", "OLLAMA_CENTER_PORT must be an integer from 1 to 65535");
+  }
+  return port;
 }
 
 function isLoopbackBind(host) {
   return ["127.0.0.1", "::1", "localhost"].includes(String(host || "").trim().toLowerCase());
 }
 
-function resolveSecretFile(value) {
+async function resolveSecretFile(value) {
   const supplied = cleanEnv(value);
-  return supplied ? path.resolve(__dirname, supplied) : "";
+  if (!supplied) return "";
+  const resolved = path.resolve(resourceDir, supplied);
+  return resolveContainedRegularFile(
+    resourceDir,
+    resolved,
+    "INVALID_TLS_PATH",
+    "TLS files must be regular files contained by RWANG_RESOURCE_DIR",
+  );
 }
 
 async function loadTlsConfiguration() {
-  const certFile = resolveSecretFile(process.env.RWANG_TLS_CERT_FILE);
-  const keyFile = resolveSecretFile(process.env.RWANG_TLS_KEY_FILE);
-  const pfxFile = resolveSecretFile(process.env.RWANG_TLS_PFX_FILE);
+  const certFile = await resolveSecretFile(process.env.RWANG_TLS_CERT_FILE);
+  const keyFile = await resolveSecretFile(process.env.RWANG_TLS_KEY_FILE);
+  const pfxFile = await resolveSecretFile(process.env.RWANG_TLS_PFX_FILE);
   const passphrase = cleanEnv(process.env.RWANG_TLS_PASSPHRASE, 4096);
 
   if (pfxFile && (certFile || keyFile)) {
-    throw new Error("กำหนด TLS เป็น PFX หรือ cert/key อย่างใดอย่างหนึ่งเท่านั้น");
+    throw startupError("INVALID_TLS_CONFIG", "กำหนด TLS เป็น PFX หรือ cert/key อย่างใดอย่างหนึ่งเท่านั้น");
   }
   if (Boolean(certFile) !== Boolean(keyFile)) {
-    throw new Error("ต้องกำหนด RWANG_TLS_CERT_FILE และ RWANG_TLS_KEY_FILE ให้ครบคู่");
+    throw startupError("INVALID_TLS_CONFIG", "ต้องกำหนด RWANG_TLS_CERT_FILE และ RWANG_TLS_KEY_FILE ให้ครบคู่");
   }
   if (!pfxFile && !certFile) return null;
 
@@ -54,7 +276,7 @@ async function loadTlsConfiguration() {
       ...(passphrase ? { passphrase } : {}),
     };
   } catch {
-    throw new Error("อ่านไฟล์ TLS ไม่สำเร็จ ตรวจ path และสิทธิ์ของ cert/key/PFX");
+    throw startupError("INVALID_TLS_FILES", "อ่านไฟล์ TLS ไม่สำเร็จ ตรวจ path และสิทธิ์ของ cert/key/PFX");
   }
 }
 
@@ -93,23 +315,6 @@ function normalizeIceServers(value) {
   });
 }
 
-const TLS_OPTIONS = await loadTlsConfiguration();
-const TRANSPORT_PROTOCOL = TLS_OPTIONS ? "https" : "http";
-const HOST = cleanEnv(process.env.RWANG_HOST, 255)
-  || (TLS_OPTIONS || ALLOW_INSECURE_LAN ? "0.0.0.0" : "127.0.0.1");
-const PUBLIC_ORIGIN = normalizePublicOrigin(process.env.RWANG_PUBLIC_ORIGIN);
-const ICE_SERVERS = normalizeIceServers(process.env.RWANG_ICE_SERVERS_JSON);
-
-if (!TLS_OPTIONS && !ALLOW_INSECURE_LAN && !isLoopbackBind(HOST)) {
-  throw new Error("ปฏิเสธ LAN HTTP: ตั้งค่า TLS หรือ RWANG_ALLOW_INSECURE_LAN=1 อย่างชัดเจน");
-}
-if (PUBLIC_ORIGIN && (!TLS_OPTIONS || new URL(PUBLIC_ORIGIN).protocol !== "https:")) {
-  throw new Error("RWANG_PUBLIC_ORIGIN ใช้ได้เฉพาะ native HTTPS เท่านั้น และไม่ยกระดับ HTTP จาก reverse proxy");
-}
-if (PUBLIC_ORIGIN && isLoopbackBind(HOST)) {
-  throw new Error("RWANG_PUBLIC_ORIGIN ต้องใช้ native HTTPS listener บน LAN; reverse-proxy loopback mode ไม่ได้รับความเชื่อถือเป็นเครื่องหลัก");
-}
-
 function buildAllowedHosts() {
   const values = new Set([
     `localhost:${PORT}`,
@@ -130,10 +335,90 @@ function buildAllowedHosts() {
   return values;
 }
 
-const ALLOWED_HOSTS = buildAllowedHosts();
 let rwang;
 let remote;
 let spotlight;
+
+async function configureRuntime() {
+  configureDesktopReadiness();
+  assertStartupActive();
+  PORT = parsePort(process.env.OLLAMA_CENTER_PORT);
+
+  const userDataRoot = cleanEnv(process.env.LOCALAPPDATA, 1000);
+  const defaultDataDir = userDataRoot && path.isAbsolute(userDataRoot)
+    ? path.join(userDataRoot, "RWANG", "data")
+    : path.join(os.homedir(), ".rwang", "data");
+  const requestedResourceDir = cleanEnv(process.env.RWANG_RESOURCE_DIR, 4000) || __dirname;
+  const requestedWorkspaceDir = cleanEnv(process.env.RWANG_WORKSPACE_DIR, 4000) || requestedResourceDir;
+  const requestedDataDir = cleanEnv(process.env.RWANG_DATA_DIR, 4000) || defaultDataDir;
+  const requestedCapabilityDir = cleanEnv(process.env.RWANG_CAPABILITY_DIR, 4000)
+    || path.join(requestedResourceDir, "capabilities", "rwang-document-intelligence");
+
+  resourceDir = await resolveConfiguredDirectory("RESOURCE_DIR", requestedResourceDir);
+  assertStartupActive();
+  workspaceDir = await resolveConfiguredDirectory("WORKSPACE_DIR", requestedWorkspaceDir);
+  assertStartupActive();
+  // Validate the lexical relationship before create:true can mutate a source
+  // or workspace tree. Canonical checks below still protect symlink aliases
+  // after the data directory exists.
+  const requestedDataPath = normalizeConfiguredPath("DATA_DIR", requestedDataDir);
+  const prospectiveDataPath = await canonicalizeProspectiveConfiguredDirectory("DATA_DIR", requestedDataPath);
+  assertDataDirectorySeparate(prospectiveDataPath, resourceDir);
+  assertDataDirectorySeparate(prospectiveDataPath, workspaceDir);
+  dataDir = await resolveConfiguredDirectory("DATA_DIR", requestedDataPath, { create: true });
+  assertStartupActive();
+  capabilityDir = await resolveConfiguredDirectory("CAPABILITY_DIR", requestedCapabilityDir);
+  assertStartupActive();
+
+  if (!isContained(resourceDir, capabilityDir, { strict: true })) {
+    throw startupError("INVALID_CAPABILITY_DIR", "RWANG_CAPABILITY_DIR must be contained by RWANG_RESOURCE_DIR");
+  }
+  if (isContained(resourceDir, dataDir) || isContained(dataDir, resourceDir)) {
+    throw startupError("INVALID_DATA_DIR", "RWANG_DATA_DIR must be separate from RWANG_RESOURCE_DIR");
+  }
+  if (isContained(workspaceDir, dataDir) || isContained(dataDir, workspaceDir)) {
+    throw startupError("INVALID_DATA_DIR", "RWANG_DATA_DIR must be separate from RWANG_WORKSPACE_DIR");
+  }
+
+  const requestedPublicDir = path.join(resourceDir, "public");
+  try {
+    const publicStats = await lstat(requestedPublicDir);
+    if (!publicStats.isDirectory() || publicStats.isSymbolicLink()) throw new Error("not a directory");
+    publicDir = await realpath(requestedPublicDir);
+    if (!isContained(resourceDir, publicDir, { strict: true })) throw new Error("outside resource root");
+  } catch {
+    throw startupError("INVALID_RESOURCE_DIR", "RWANG_RESOURCE_DIR must contain the public resource directory");
+  }
+  stateFile = path.join(dataDir, ".queue-state.json");
+  stateTempFile = path.join(dataDir, ".queue-state.tmp");
+  logFile = path.join(dataDir, "rwang.log");
+
+  const migration = await migrateLegacyMutableData({ legacyRoot: resourceDir, dataRoot: dataDir });
+  assertStartupActive();
+  if (migration.copied.length) {
+    console.log(`RWANG legacy data copied to DATA_DIR: ${migration.copied.join(", ")}`);
+  }
+
+  TLS_OPTIONS = await loadTlsConfiguration();
+  assertStartupActive();
+  TRANSPORT_PROTOCOL = TLS_OPTIONS ? "https" : "http";
+  const allowInsecureLan = TRUE_VALUES.has(String(process.env.RWANG_ALLOW_INSECURE_LAN || "").trim().toLowerCase());
+  HOST = cleanEnv(process.env.RWANG_HOST, 255)
+    || (TLS_OPTIONS || allowInsecureLan ? "0.0.0.0" : "127.0.0.1");
+  PUBLIC_ORIGIN = normalizePublicOrigin(process.env.RWANG_PUBLIC_ORIGIN);
+  ICE_SERVERS = normalizeIceServers(process.env.RWANG_ICE_SERVERS_JSON);
+
+  if (!TLS_OPTIONS && !allowInsecureLan && !isLoopbackBind(HOST)) {
+    throw startupError("INSECURE_LAN_DISABLED", "ปฏิเสธ LAN HTTP: ตั้งค่า TLS หรือ RWANG_ALLOW_INSECURE_LAN=1 อย่างชัดเจน");
+  }
+  if (PUBLIC_ORIGIN && (!TLS_OPTIONS || new URL(PUBLIC_ORIGIN).protocol !== "https:")) {
+    throw startupError("INVALID_PUBLIC_ORIGIN", "RWANG_PUBLIC_ORIGIN ใช้ได้เฉพาะ native HTTPS เท่านั้น และไม่ยกระดับ HTTP จาก reverse proxy");
+  }
+  if (PUBLIC_ORIGIN && isLoopbackBind(HOST)) {
+    throw startupError("INVALID_PUBLIC_ORIGIN", "RWANG_PUBLIC_ORIGIN ต้องใช้ native HTTPS listener บน LAN; reverse-proxy loopback mode ไม่ได้รับความไว้วางใจ");
+  }
+  ALLOWED_HOSTS = buildAllowedHosts();
+}
 
 function spotlightRootConfiguration() {
   const homeDir = os.homedir();
@@ -143,7 +428,7 @@ function spotlightRootConfiguration() {
     : ["Desktop", "Documents", "Downloads", "Pictures", "Music", "Videos"]
       .map((name) => path.join(homeDir, name));
   return [
-    { label: "Workspace", path: __dirname },
+    { label: "Workspace", path: workspaceDir },
     ...personalRoots.slice(0, 7).map((rootPath, index) => ({
       label: configured ? path.basename(rootPath) || `Folder ${index + 1}` : path.basename(rootPath),
       path: rootPath,
@@ -709,6 +994,27 @@ function closeQueueEventClients() {
 }
 
 async function api(req, res, url) {
+  // Keep health checks dependency-free so launchers and supervisors can probe
+  // the listener without touching Ollama or config. Desktop launchers must
+  // complete a per-request HMAC challenge before receiving readiness details.
+  if (req.method === "GET" && url.pathname === "/api/health") {
+    const desktopProof = desktopHealthProof(req);
+    if (desktopProof === null) {
+      return json(res, 401, {
+        ok: false,
+        ready: false,
+        status: "unauthorized",
+        service: "rwang",
+      });
+    }
+    const ready = runtime.state === "ready";
+    return json(res, ready ? 200 : 503, {
+      ok: ready,
+      ready,
+      status: runtime.state,
+      service: "rwang",
+    }, desktopProof ? { "x-rwang-desktop-proof": desktopProof } : {});
+  }
   if (url.pathname === "/api/rwang/pair") {
     if (req.method === "POST" && !enforceJsonPost(req, res)) return;
     const handled = await rwang.handlePublicApi(req, res, url, {
@@ -857,11 +1163,16 @@ const requestHandler = async (req, res) => {
     const requested = url.pathname === "/" ? "index.html" : url.pathname.slice(1);
     const safePath = path.normalize(requested).replace(/^(\.\.[/\\])+/, "");
     const filePath = path.resolve(publicDir, safePath);
-    if (filePath !== publicDir && !filePath.startsWith(`${publicDir}${path.sep}`)) throw new Error("Invalid path");
-    const content = await readFile(filePath);
+    const canonicalFilePath = await resolveContainedRegularFile(
+      publicDir,
+      filePath,
+      "INVALID_STATIC_PATH",
+      "Static resource must be a regular file contained by RWANG_RESOURCE_DIR",
+    );
+    const content = await readFile(canonicalFilePath);
     res.writeHead(200, {
-      "content-type": mime[path.extname(filePath)] || "application/octet-stream",
-      "cache-control": staticCacheControl(filePath),
+      "content-type": mime[path.extname(canonicalFilePath)] || "application/octet-stream",
+      "cache-control": staticCacheControl(canonicalFilePath),
       "x-content-type-options": "nosniff",
       "x-frame-options": "DENY",
       "cross-origin-resource-policy": "same-origin",
@@ -875,96 +1186,200 @@ const requestHandler = async (req, res) => {
   }
 };
 
-const server = TLS_OPTIONS
-  ? https.createServer(TLS_OPTIONS, requestHandler)
-  : http.createServer(requestHandler);
-server.requestTimeout = 30_000;
-server.headersTimeout = 10_000;
-server.keepAliveTimeout = 5_000;
-server.maxHeadersCount = 100;
-
-await restore();
-spotlight = await createSpotlightIndex({
-  roots: spotlightRootConfiguration(),
-  homeDir: os.homedir(),
-  workspaceRoot: __dirname,
-  refreshIntervalMs: Number(process.env.RWANG_SPOTLIGHT_REFRESH_MS || 5 * 60 * 1000),
-  maxFiles: Number(process.env.RWANG_SPOTLIGHT_MAX_FILES || 50_000),
-});
-rwang = await createRwangCore({
-  rootDir: __dirname,
-  ollamaUrl: OLLAMA,
-  port: PORT,
-  protocol: TRANSPORT_PROTOCOL,
-  host: HOST,
-  publicOrigin: PUBLIC_ORIGIN,
-  spotlight,
-  getSystemStatus: getStatus,
-  notify: () => {
-    broadcast();
-    remote?.enforcePolicy();
-  },
-  audit: (level, message) => addLog(level, message, "rwang"),
-  onTokenRotated: async () => {
-    closeQueueEventClients();
-    remote?.revokeAll("master-token-rotated");
-  },
-  onAccessRevoked: async () => {
-    closeQueueEventClients();
-  },
-});
-remote = createRemoteCore({
-  notify: broadcast,
-  audit: (level, message) => addLog(level, message, "remote"),
-  isLocal: rwang.isLocal,
-  isAuthorized: rwang.isAuthorized,
-  getPolicy: rwang.remotePolicy,
-  getIceServers: () => ICE_SERVERS,
-});
-void spotlight.start().then((indexStatus) => {
-  addLog(
-    indexStatus.truncated ? "warning" : "success",
-    `Spotlight พร้อมค้นหา ${indexStatus.indexedFiles.toLocaleString("en-US")} ไฟล์`,
-    "spotlight",
-  );
-}).catch(() => {
-  addLog("error", "Spotlight สร้างดัชนีไฟล์ไม่สำเร็จ", "spotlight");
-});
-server.listen(PORT, HOST, () => {
-  console.log(`RWANG Local Assistant: ${TRANSPORT_PROTOCOL}://127.0.0.1:${PORT}`);
-  console.log(TLS_OPTIONS
-    ? "LAN transport: HTTPS enabled"
-    : isLoopbackBind(HOST)
-      ? "LAN transport: disabled (secure loopback-only HTTP)"
-      : "LAN transport: INSECURE HTTP explicitly enabled");
-  console.log("กด Ctrl+C เพื่อปิด RWANG (Ollama จะยังทำงานตามปกติ)");
-  addLog("success", `RWANG เริ่มทำงานบน ${TRANSPORT_PROTOCOL}://${HOST}:${PORT}`);
-});
-
 let shuttingDown = false;
-async function shutdown() {
-  if (shuttingDown) return;
-  shuttingDown = true;
-  for (const controller of state.controllers.values()) controller.abort();
-  closeQueueEventClients();
-  await Promise.allSettled([remote.close(), rwang.close(), spotlight.close()]);
-  const deadline = setTimeout(() => {
-    server.closeAllConnections?.();
-    process.exit(0);
-  }, 5000);
-  server.close(() => {
-    clearTimeout(deadline);
-    process.exit(0);
+let shutdownPromise = null;
+
+function lifecycleError(error) {
+  const candidate = String(error?.code || "");
+  const code = /^[A-Z][A-Z0-9_]{1,80}$/.test(candidate) ? candidate : "STARTUP_FAILED";
+  const message = error?.startupSafeMessage && !/[\\/]|(?:[A-Za-z]:)/.test(error.startupSafeMessage)
+    ? String(error.startupSafeMessage).slice(0, 240)
+    : "RWANG could not start";
+  return { code, message };
+}
+
+function emitLifecycle(event, details = {}) {
+  const payload = {
+    event,
+    type: event,
+    status: event,
+    service: "rwang",
+    ok: event === "ready",
+    ...details,
+  };
+  try {
+    process.stdout.write(`${JSON.stringify(payload)}\n`);
+  } catch {}
+}
+
+function listen(serverInstance) {
+  return new Promise((resolve, reject) => {
+    const onError = (error) => {
+      serverInstance.removeListener("listening", onListening);
+      reject(error);
+    };
+    const onListening = () => {
+      serverInstance.removeListener("error", onError);
+      resolve();
+    };
+    serverInstance.once("error", onError);
+    serverInstance.once("listening", onListening);
+    try {
+      serverInstance.listen(PORT, HOST);
+    } catch (error) {
+      onError(error);
+    }
   });
 }
 
-process.on("SIGINT", () => void shutdown());
-process.on("SIGTERM", () => void shutdown());
+function requestShutdown(exitCode = 0) {
+  if (shutdownPromise) return shutdownPromise;
+  shuttingDown = true;
+  runtime.state = "stopping";
+  startupAbortController.abort();
+  shutdownPromise = (async () => {
+    // Startup owns the resource graph until this settles. Waiting here means
+    // objects assigned after the signal (core, spotlight, or HTTP server) are
+    // still included in the final cleanup pass.
+    await startupFinished;
+    for (const controller of state.controllers.values()) controller.abort();
+    closeQueueEventClients();
+    clearTimeout(persistTimer);
+    const cleanups = [
+      remote?.close?.(),
+      rwang?.close?.(),
+      spotlight?.close?.(),
+    ].filter(Boolean);
+    await Promise.allSettled(cleanups);
+    if (dataDir) await Promise.allSettled([persist()]);
+    if (server?.listening) {
+      await new Promise((resolve) => {
+        const deadline = setTimeout(() => {
+          server.closeAllConnections?.();
+          resolve();
+        }, 5000);
+        deadline.unref?.();
+        server.close(() => {
+          clearTimeout(deadline);
+          resolve();
+        });
+      });
+    }
+    process.exitCode = exitCode;
+  })().catch(() => {
+    process.exitCode = exitCode;
+  });
+  return shutdownPromise;
+}
+
+process.on("SIGINT", () => void requestShutdown());
+process.on("SIGTERM", () => void requestShutdown());
 
 process.on("uncaughtException", (error) => {
-  void appendFile(logFile, `${JSON.stringify({ at: now(), level: "error", message: `uncaughtException: ${error.stack || error.message}`, model: "system" })}\n`, "utf8");
+  if (logFile) {
+    void appendFile(logFile, `${JSON.stringify({ at: now(), level: "error", message: "uncaughtException", model: "system" })}\n`, "utf8").catch(() => {});
+  }
 });
 
 process.on("unhandledRejection", (error) => {
-  void appendFile(logFile, `${JSON.stringify({ at: now(), level: "error", message: `unhandledRejection: ${error?.stack || error}`, model: "system" })}\n`, "utf8");
+  if (logFile) {
+    void appendFile(logFile, `${JSON.stringify({ at: now(), level: "error", message: "unhandledRejection", model: "system" })}\n`, "utf8").catch(() => {});
+  }
 });
+
+async function start() {
+  try {
+    await configureRuntime();
+    assertStartupActive();
+    server = TLS_OPTIONS
+      ? https.createServer(TLS_OPTIONS, requestHandler)
+      : http.createServer(requestHandler);
+    server.requestTimeout = 30_000;
+    server.headersTimeout = 10_000;
+    server.keepAliveTimeout = 5_000;
+    server.maxHeadersCount = 100;
+
+    await restore();
+    assertStartupActive();
+    spotlight = await createSpotlightIndex({
+      roots: spotlightRootConfiguration(),
+      homeDir: os.homedir(),
+      workspaceRoot: workspaceDir,
+      refreshIntervalMs: Number(process.env.RWANG_SPOTLIGHT_REFRESH_MS || 5 * 60 * 1000),
+      maxFiles: Number(process.env.RWANG_SPOTLIGHT_MAX_FILES || 50_000),
+    });
+    assertStartupActive();
+    rwang = await createRwangCore({
+      resourceDir,
+      dataDir,
+      workspaceDir,
+      capabilityDir,
+      rootDir: workspaceDir,
+      ollamaUrl: OLLAMA,
+      port: PORT,
+      protocol: TRANSPORT_PROTOCOL,
+      host: HOST,
+      publicOrigin: PUBLIC_ORIGIN,
+      spotlight,
+      getSystemStatus: getStatus,
+      notify: () => {
+        broadcast();
+        remote?.enforcePolicy();
+      },
+      audit: (level, message) => addLog(level, message, "rwang"),
+      onTokenRotated: async () => {
+        closeQueueEventClients();
+        remote?.revokeAll("master-token-rotated");
+      },
+      onAccessRevoked: async () => {
+        closeQueueEventClients();
+      },
+    });
+    assertStartupActive();
+    remote = createRemoteCore({
+      notify: broadcast,
+      audit: (level, message) => addLog(level, message, "remote"),
+      isLocal: rwang.isLocal,
+      isAuthorized: rwang.isAuthorized,
+      getPolicy: rwang.remotePolicy,
+      getIceServers: () => ICE_SERVERS,
+    });
+    assertStartupActive();
+    void spotlight.start().then((indexStatus) => {
+      addLog(
+        indexStatus.truncated ? "warning" : "success",
+        `Spotlight พร้อมค้นหา ${indexStatus.indexedFiles.toLocaleString("en-US")} ไฟล์`,
+        "spotlight",
+      );
+    }).catch(() => {
+      addLog("error", "Spotlight สร้างดัชนีไฟล์ไม่สำเร็จ", "spotlight");
+    });
+    await listen(server);
+    assertStartupActive();
+    runtime.state = "ready";
+    runtime.readyAt = now();
+    console.log(`RWANG Local Assistant: ${TRANSPORT_PROTOCOL}://127.0.0.1:${PORT}`);
+    console.log(TLS_OPTIONS
+      ? "LAN transport: HTTPS enabled"
+      : isLoopbackBind(HOST)
+        ? "LAN transport: disabled (secure loopback-only HTTP)"
+        : "LAN transport: INSECURE HTTP explicitly enabled");
+    console.log("กด Ctrl+C เพื่อปิด RWANG (Ollama จะยังทำงานตามปกติ)");
+    addLog("success", `RWANG เริ่มทำงานบน ${TRANSPORT_PROTOCOL}://${HOST}:${PORT}`);
+    assertStartupActive();
+    emitLifecycle("ready", { port: PORT, protocol: TRANSPORT_PROTOCOL });
+  } catch (error) {
+    if (shuttingDown || startupAbortController.signal.aborted) {
+      runtime.state = "stopping";
+    } else {
+      runtime.state = "fatal";
+      emitLifecycle("fatal", { error: lifecycleError(error) });
+      console.error("RWANG startup failed");
+      requestShutdown(1);
+    }
+  } finally {
+    resolveStartupFinished();
+  }
+}
+
+await start();

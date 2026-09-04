@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="referrer" content="no-referrer">
+    <title>RWANG · Desktop diagnostics</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="กลับไปหน้า RWANG">
+        <span class="brand-glyph" aria-hidden="true">R</span>
+        <span><strong>RWANG</strong><small>DESKTOP DIAGNOSTICS</small></span>
+      </a>
+      <div class="connection">
+        <i aria-hidden="true"></i>
+        <span><strong>ON DEVICE</strong><small>NO TELEMETRY</small></span>
+      </div>
+      <div class="top-actions">
+        <a class="settings-button" href="/">BACK TO RWANG</a>
+      </div>
+    </header>
+
+    <main>
+      <section class="view" aria-labelledby="diagnosticsTitle">
+        <header class="section-header">
+          <div>
+            <p class="kicker">WAVE 2 / WEBVIEW MEDIA PARITY</p>
+            <h1 id="diagnosticsTitle">ตรวจความพร้อมของ desktop media</h1>
+          </div>
+          <p>Passive checks อ่านได้เฉพาะความสามารถของ browser และไฟล์ local ส่วนการเปิดกล้อง ไมค์ หรือแชร์หน้าจอต้องกดปุ่มทดสอบทีละรายการ</p>
+        </header>
+
+        <div class="metrics" aria-label="สรุปผลการตรวจ">
+          <div>
+            <span>PASSIVE CHECKS</span>
+            <strong id="passiveSummary">—</strong>
+            <small id="passiveDetail">กำลังตรวจ capability และ asset</small>
+          </div>
+          <div>
+            <span>ACTIVE MEDIA</span>
+            <strong id="activeSummary">—</strong>
+            <small id="activeDetail">ยังไม่มีการขอ permission</small>
+          </div>
+          <div>
+            <span>PAGE ORIGIN</span>
+            <strong id="originSummary">—</strong>
+            <small id="originDetail">ตรวจ loopback origin</small>
+          </div>
+          <div>
+            <span>OVERALL</span>
+            <strong id="overallSummary">RUNNING</strong>
+            <small id="overallDetail">ผลนี้อยู่ในเครื่องนี้เท่านั้น</small>
+          </div>
+        </div>
+
+        <div class="systems-grid">
+          <section class="system-panel" aria-labelledby="passiveTitle">
+            <header>
+              <div>
+                <span class="activity-symbol" aria-hidden="true">◌</span>
+                <span id="passiveTitle">PASSIVE CAPABILITY CHECKS</span>
+              </div>
+              <span class="status-pill retrying" id="passiveStatus">CHECKING</span>
+            </header>
+            <div class="activity-log">
+              <table id="resultTable" width="100%">
+                <caption class="sr-only">ผลตรวจความสามารถและ asset ของ browser</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">CHECK</th>
+                    <th scope="col">STATUS</th>
+                    <th scope="col">DETAIL</th>
+                  </tr>
+                </thead>
+                <tbody id="resultRows"></tbody>
+              </table>
+            </div>
+            <p class="panel-footnote">การตรวจชุดนี้ไม่เรียก getUserMedia, getDisplayMedia หรือ SpeechRecognition และไม่ส่งข้อมูลออกจาก origin นี้</p>
+          </section>
+
+          <section class="system-panel" aria-labelledby="activeTitle">
+            <header>
+              <div>
+                <span class="activity-symbol" aria-hidden="true">◎</span>
+                <span id="activeTitle">ACTIVE MEDIA TESTS</span>
+              </div>
+              <span class="status-pill" id="activeStatus">NOT RUN</span>
+            </header>
+            <div class="bordered-form">
+              <p class="panel-footnote">กดปุ่มด้วยตัวเองเพื่อเปิด permission prompt การได้ stream สำเร็จจะหยุดทุก track ทันที ไม่มีการแสดงผล บันทึก หรือ upload frame/audio</p>
+              <div class="action-row">
+                <button class="secondary-button" type="button" data-media-test="camera" aria-describedby="activeHint">TEST CAMERA</button>
+                <button class="secondary-button" type="button" data-media-test="microphone" aria-describedby="activeHint">TEST MICROPHONE</button>
+                <button class="secondary-button" type="button" data-media-test="display" aria-describedby="activeHint">TEST DISPLAY</button>
+              </div>
+              <p id="activeHint" class="panel-footnote warning">ทดสอบเมื่อพร้อมเท่านั้น: browser อาจแสดง dialog ให้เลือกอุปกรณ์หรือหน้าต่าง</p>
+              <output id="activeOutput" class="panel-footnote" aria-live="polite">ยังไม่ได้เริ่ม active test</output>
+            </div>
+          </section>
+        </div>
+
+        <section class="system-panel" aria-labelledby="manualGateTitle">
+          <header>
+            <div>
+              <span class="activity-symbol" aria-hidden="true">□</span>
+              <span id="manualGateTitle">MANUAL TAURI / WEBVIEW2 GATE</span>
+            </div>
+            <span class="status-pill retrying" id="manualGateStatus">PENDING</span>
+          </header>
+          <form id="manualGateForm" class="bordered-form">
+            <p class="panel-footnote">ติ๊กเมื่อยืนยันด้วยตนเองใน packaged Tauri บน Windows และ WebView2 แล้วเท่านั้น รายการนี้เป็น local attestation ไม่ใช่ผลตรวจอัตโนมัติ</p>
+            <label class="check-field">
+              <input type="checkbox" data-gate-check>
+              <span>เปิดหน้านี้จาก packaged Tauri sidecar loopback origin และ `window.isSecureContext` เป็นจริง</span>
+            </label>
+            <label class="check-field">
+              <input type="checkbox" data-gate-check>
+              <span>ใช้ WebView2 runtime ที่องค์กรรองรับ และหน้า RWANG หลักยังเปิดได้ตามปกติ</span>
+            </label>
+            <label class="check-field">
+              <input type="checkbox" data-gate-check>
+              <span>กด active camera, microphone และ display test ทีละปุ่ม และเห็นว่า tracks ถูกหยุดทันที</span>
+            </label>
+            <label class="check-field">
+              <input type="checkbox" data-gate-check>
+              <span>ตรวจ DevTools Network แล้วพบเฉพาะ same-origin local asset requests ไม่มี upload หรือ telemetry</span>
+            </label>
+            <label class="check-field">
+              <input type="checkbox" data-gate-check>
+              <span>กด X แล้วแอปซ่อนโดย sidecar ยังทำงาน จากนั้นใช้ Tray &gt; Quit และยืนยันว่าไม่เหลือ orphan sidecar process หรือ permission ค้าง</span>
+            </label>
+            <div class="action-row">
+              <button class="primary-button" type="submit">RECORD LOCAL GATE</button>
+            </div>
+          </form>
+          <output id="manualGateOutput" class="panel-footnote warning" aria-live="polite">MANUAL GATE PENDING · ยังไม่มีการรับรอง</output>
+        </section>
+
+        <p class="security-note warning"><strong>On-device diagnostic — not an access-control boundary</strong><br>เปิดผ่าน exact loopback sidecar origin เท่านั้น หน้านี้ไม่ใช้ CDN, ไม่สร้าง WebSocket/EventSource, ไม่ใช้ beacon/XHR และไม่เรียก permission เองเมื่อโหลด การตรวจ MediaPipe ใช้ HEAD requests ไปยัง `/vendor/` ภายใน origin ปัจจุบันเท่านั้น</p>
+      </section>
+    </main>
+
+    <script type="module" src="/desktop-diagnostics.js"></script>
+  </body>
+</html>
