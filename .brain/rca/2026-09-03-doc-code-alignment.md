@@ -1,9 +1,9 @@
 ---
-version: "0.1.3b"
-doc_version: "0.1.3"
+version: "0.1.4b"
+doc_version: "0.1.4"
 doc_status: "approved"
 created_at: "2026-09-03T21:01:52+07:00,RWANG,3a6657caf0519f54b8bee05658f3047856e64b65"
-last_update: "2026-09-04T07:35:00+07:00,RWANG"
+last_update: "2026-09-04T11:01:38+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -14,7 +14,7 @@ attributes:
   language: "th-TH"
   change_risk: "HIGH"
   baseline_commit: "3a6657caf0519f54b8bee05658f3047856e64b65"
-  implementation_commit: "f3cafdc468cd7d2891ff288c2d85a0ad31cc5f2b"
+  implementation_commit: "uncommitted"
 ---
 
 # RCA and Remediation Specification — Documentation/Code Alignment
@@ -67,6 +67,12 @@ Spotlight, security smoke และ remote security แต่ backend overlap te
 run `33820044423` ยืนยัน core overlap guard ผ่าน แต่ child-server test ยังสร้าง
 nested data directory ก่อน rejection เพราะ `server.mjs` มี raw-path precheck
 และ create flow แยกจาก `createRwangCore`
+
+run `33820482289` ผ่าน post-stage security ทั้งชุดแล้ว แต่ desktop package
+contract ล้มเมื่อ Windows PowerShell 5.1 จัดรูปแบบข้อความ error โดยแทรก CRLF
+ระหว่าง `SHA-256` กับ `mismatch`; process ยังคงคืน non-zero และข้อความยังระบุ
+expected/actual digest ถูกต้อง จึงเป็น false negative ของ assertion ไม่ใช่การ
+สูญเสีย fail-closed behavior
 
 ## 4. Evidence
 
@@ -135,6 +141,9 @@ nested data directory ก่อน rejection เพราะ `server.mjs` มี
     `serverRejectsNestedData` พบ nested directory ถูกสร้างแล้ว; `server.mjs`
     เรียก `resolveConfiguredDirectory(..., { create: true })` หลัง lexical
     raw/canonical alias check ที่พลาด และค่อยตรวจ canonical overlap ภายหลัง
+14. Windows run `33820482289` แสดง `Node executable SHA-256 \r\nmismatch:`
+    จาก PowerShell error renderer ขณะที่ `tests/desktop-package.mjs:276` บังคับ
+    substring `/SHA-256 mismatch/` ที่มี space เดียวและไม่ยอมรับ line wrapping
 
 ### 4.4 Documentation governance
 
@@ -165,6 +174,9 @@ Rust host, Node sidecar, UI และ release workflow:
    prospective path; alias ต่างกันทำให้ containment false negative ก่อน mkdir
 7. guard ใน `rwang.mjs` และ `server.mjs` เป็น peer implementations; แก้เฉพาะ
    core ไม่ครอบคลุม server startup owner ที่ทำ directory creation เอง
+8. desktop package test ผูกกับ presentation whitespace ของ PowerShell error
+   record แทน semantic tokens ของ error; host ที่ wrap บรรทัดจึงทำให้ contract
+   ล้มแม้ exit code และ mismatch semantics ถูกต้อง
 
 ## 6. Why the issue escaped detection
 
@@ -180,6 +192,8 @@ Rust host, Node sidecar, UI และ release workflow:
   ทั้งสองฝั่ง จึงไม่เปิดเผย canonical/raw mismatch
 - peer review เดิมตรวจ contract ระดับ core แต่ไม่บังคับ shared prospective-path
   semantics ที่ server startup ก่อน mutation
+- local terminal width/error renderer ไม่แทรก CRLF ที่ตำแหน่งเดียวกับ hosted
+  Windows PowerShell 5.1 จึงไม่เปิดเผย brittle whitespace assertion
 
 ## 7. Normative remediation decisions (implemented)
 
@@ -301,6 +315,14 @@ tauri build
 - เพิ่ม doc-contract tests สำหรับ commands, status language, paths, optional/manual
   gates และห้ามกล่าวอ้าง completion เกิน evidence
 
+### D10 — Error assertions verify semantics, not console wrapping
+
+- SHA mismatch contract ต้องตรวจ non-zero exit codeเหมือนเดิม
+- error text ต้องยอมรับ whitespace/line wrapping ระหว่าง `SHA-256` และ
+  `mismatch` แต่ยังต้องมี semantic phrase ทั้งสองคำติดกันตามลำดับ
+- ห้ามผ่อนให้ผ่านด้วย exit code อย่างเดียว เพื่อคงหลักฐานว่า failure มาจาก
+  integrity guard ที่ตั้งใจทดสอบ
+
 ## 7.10 Local verification evidence
 
 - staging ผ่านทั้ง Windows PowerShell 5.1 และ PowerShell 7 ด้วย pinned Node
@@ -410,7 +432,7 @@ code signing ต้องมีหลักฐานแยกก่อนเล�
 
 | Artifact | From | To after implementation | Change |
 |---|---|---|---|
-| Alignment RCA/spec | none | `0.1.3b` beta | ขยาย prospective DATA_DIR guard ให้ server startup owner |
+| Alignment RCA/spec | none | `0.1.4b` beta | เพิ่ม PowerShell error-rendering RCA และ semantic assertion contract |
 | Persona PRD | `0.2.1b` beta | `0.2.2b` beta | prompt/test traceability, readable disclosure, commit evidence |
 | pnpm staging RCA | `0.1.0b` beta | `0.2.7b` beta | `.bin`, shell/hash, scanner traversal และ hosted phase evidence |
 | Desktop DAG | unversioned | `0.1.0b` beta | truthful wave/manual status, paths and rollback |
@@ -431,3 +453,4 @@ code signing ต้องมีหลักฐานแยกก่อนเล�
 | 0.1.1b | 2026-09-04 | beta | Windows CI ผ่าน scanner gateและพบ Spotlight short/long path alias; กำหนด canonical expected identity | a82635f | RWANG |
 | 0.1.2b | 2026-09-04 | beta | hosted backend test พบ canonical/raw prospective path mismatch; กำหนด nearest-ancestor canonicalization | d19ed00 | RWANG |
 | 0.1.3b | 2026-09-04 | beta | hosted child-server test ยืนยัน peer precheck drift; บังคับ canonical guard ก่อน mkdir | f3cafdc | RWANG |
+| 0.1.4b | 2026-09-04 | beta | hosted PowerShell แทรก CRLF ใน SHA mismatch error; กำหนด assertion แบบ whitespace-tolerant โดยคง fail-closed gate | uncommitted | RWANG |

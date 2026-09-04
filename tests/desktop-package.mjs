@@ -273,7 +273,7 @@ async function dryRunContract() {
         "-NodeLicensePath", licensePath, "-NodeSha256", "0".repeat(64),
       ]);
       assert.notEqual(mismatch.code, 0, `${powershell} staging dry-run must fail closed on a SHA-256 mismatch`);
-      assert.match(`${mismatch.stdout}\n${mismatch.stderr}`, /SHA-256 mismatch/);
+      assert.match(`${mismatch.stdout}\n${mismatch.stderr}`, /SHA-256\s+mismatch/);
     }
   } finally {
     await rm(fixtureRoot, { recursive: true, force: true });
