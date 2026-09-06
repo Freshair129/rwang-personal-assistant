@@ -1134,7 +1134,7 @@ export async function createRwangCore({
     };
 
     tools.rwang_document_catalog = tool({
-      description: "Read the pinned RWANG Document Intelligence v1.3.0 capability catalog and execution modes. Static bundled metadata only; it does not inspect or change project files.",
+      description: "Read the pinned RWANG Document Intelligence v1.4.0 capability catalog and execution modes. Static bundled metadata only; it does not inspect or change project files.",
       inputSchema: z.object({}),
       execute: async () => documentIntelligence.snapshot({ local: false }),
     });

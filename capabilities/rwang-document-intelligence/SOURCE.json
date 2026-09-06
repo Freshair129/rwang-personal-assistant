@@ -18,6 +18,10 @@
     "keep-utf8-bom-on-ps1: Windows PowerShell 5.1 reads a BOM-less script in the system codepage, which mangles the section sign in the @designs pattern and drops every @designs annotation without reporting anything. Earlier vendored copies stripped it."
   ],
   "adaptations": [
-    "scripts/scan-annotations.ps1: bounded enumeration skips ignored directories and reparse points before recursion"
+    "scripts/scan-annotations.ps1: bounded enumeration skips ignored directories and reparse points before recursion",
+    "scripts/scan-annotations.ps1: no Get-ChildItem at all — directories are enumerated through [IO.Directory]::EnumerateDirectories so provider entries are never materialized before pruning",
+    "scripts/scan-annotations.ps1: traversal state is constructed as Stack[string]]::new(), not New-Object, so it does not depend on cmdlet resolution",
+    "scripts/scan-annotations.ps1: the root is resolved without Resolve-Path, so it is not resolved through the PowerShell provider",
+    "scripts/scan-annotations.ps1: terminates with an explicit exit 0 after flushing its output pipeline"
   ]
 }

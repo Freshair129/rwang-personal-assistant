@@ -37,7 +37,7 @@ $ErrorActionPreference = "Stop"
 $Extensions = @("*.ts", "*.tsx", "*.js", "*.jsx", "*.py", "*.go", "*.java", "*.rs", "*.cs", "*.ps1")
 
 # Directories to skip
-$SkipDirs = @("node_modules", "__pycache__", ".venv", "venv", ".git", "dist", "build", ".next", "coverage")
+$SkipDirs = @("node_modules", ".pnpm-store", "__pycache__", ".venv", "venv", ".git", "dist", "build", ".next", "coverage")
 
 # Structured annotations are source comments, never prose/string literals.
 # Requirement/spec annotations carry registered requirement IDs; design can
@@ -86,10 +86,6 @@ $AnnotationPatterns = @{
 # Unstructured requirement ID pattern
 $ReqIdPattern = "(?<![A-Za-z0-9_-])$RequirementId(?![A-Za-z0-9_-])"
 
-# ADAPTATION (see SOURCE.json): bounded enumeration that skips ignored directories and
-# reparse points before recursing, rather than filtering a full recursive listing after the
-# fact. Upstream 1.4.0 independently corrected the directory match this already had right;
-# the reparse-point guard and the bounded walk remain local.
 function Get-FilesByFilter {
     param([string]$RootPath, [string[]]$Filters)
 
@@ -137,25 +133,7 @@ function Get-FilesByFilter {
 
 function Get-SourceFiles {
     param([string]$RootPath)
-
-    $files = @()
-    foreach ($ext in $Extensions) {
-        $found = Get-ChildItem -Path $RootPath -Filter $ext -Recurse -File -ErrorAction SilentlyContinue |
-            Where-Object {
-                $skip = $false
-                # Segments, not substrings: a skip list names directories.
-                $parts = $_.FullName -split '[\\/]'
-                foreach ($dir in $SkipDirs) {
-                    if ($parts -contains $dir) {
-                        $skip = $true
-                        break
-                    }
-                }
-                -not $skip
-            }
-        $files += $found
-    }
-    return $files
+    return @(Get-FilesByFilter -RootPath $RootPath -Filters $Extensions)
 }
 
 function Scan-File {
@@ -392,7 +370,10 @@ function Scan-TestSpecFile {
 }
 
 # Main execution
-$resolvedPath = (Resolve-Path $Path).Path
+$resolvedPath = [System.IO.Path]::GetFullPath($Path)
+if (-not [System.IO.Directory]::Exists($resolvedPath)) {
+    throw "Scan root does not exist or is not a directory"
+}
 $files = Get-SourceFiles -RootPath $resolvedPath
 $mermaidFiles = Get-FilesByFilter -RootPath $resolvedPath -Filters @("*.mmd")
 $testSpecFiles = Get-FilesByFilter -RootPath $resolvedPath -Filters @("*.test.md")
@@ -482,3 +463,5 @@ if ($Format -eq "json") {
         Write-Host "No annotations found." -ForegroundColor Red
     }
 }
+
+exit 0
