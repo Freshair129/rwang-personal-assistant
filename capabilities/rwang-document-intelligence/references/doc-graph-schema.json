@@ -128,7 +128,11 @@
               "@req": { "type": "array", "items": { "type": "string" } },
               "@spec": { "type": "array", "items": { "type": "string" } },
               "@designs": { "type": "array", "items": { "type": "string" } },
-              "@tested": { "type": "array", "items": { "type": "string" } }
+              "@tested": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Either test references (on a source node: \"verified by these tests\") or requirement IDs (on a test node: \"verifies these requirements\"). Both assert verified_by; they differ in which end this node is. The scanner reports which form it read in its `form` field."
+              }
             }
           }
         }

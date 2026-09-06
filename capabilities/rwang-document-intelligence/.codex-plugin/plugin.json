@@ -1,6 +1,6 @@
 {
   "name": "rwang-plugin",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "RWANG document-intelligence skills for governed documentation, traceability, and self-audit.",
   "author": {
     "name": "GPIC Team"

@@ -102,18 +102,22 @@ try {
   assert.equal(snapshot.version, DOCUMENT_INTELLIGENCE_VERSION);
   assert.equal(snapshot.status, "ready");
   assert.equal(snapshot.sourceUrl, "https://github.com/Freshair129/rwang-plugin");
-  assert.equal(snapshot.commit, "7354738094432fed22d6e00568315e1a1bd8fe15");
+  assert.equal(snapshot.commit, "42ef41ffff3b62dcfd88ac28780d8f0d26b1c617");
   assert.equal(snapshot.runtime.policy, "read-only");
   assert.equal(snapshot.integrity.status, "sha256-verified");
   assert.equal(snapshot.integrity.signed, false);
   assert.equal(snapshot.hostPolicy.playbooks, "proposal-only");
   assert.equal(snapshot.hostPolicy.graphWriter, "doc-graph-only");
   assert.equal(snapshot.hostPolicy.scannedRepositoryContent, "untrusted-data");
-  assert.equal(snapshot.source.tag, "v1.3.0");
-  assert.equal(snapshot.source.commit, "7354738094432fed22d6e00568315e1a1bd8fe15");
-  assert.equal(snapshot.source.artifactSha256, "4225e902d65ebffe9e9af945376c9b6b459f7bccc4c67a04dc80a6ad01d13432");
+  assert.equal(snapshot.source.tag, "v1.4.0");
+  assert.equal(snapshot.source.commit, "42ef41ffff3b62dcfd88ac28780d8f0d26b1c617");
+  assert.equal(snapshot.source.artifactSha256, "d93209d15b3b154327bb04d7e15452465b3743441e81d6b21fd6ccb037bc217a");
   assert.deepEqual(snapshot.source.adaptations, [
     "scripts/scan-annotations.ps1: bounded enumeration skips ignored directories and reparse points before recursion",
+    "scripts/scan-annotations.ps1: no Get-ChildItem at all — directories are enumerated through [IO.Directory]::EnumerateDirectories so provider entries are never materialized before pruning",
+    "scripts/scan-annotations.ps1: traversal state is constructed as Stack[string]]::new(), not New-Object, so it does not depend on cmdlet resolution",
+    "scripts/scan-annotations.ps1: the root is resolved without Resolve-Path, so it is not resolved through the PowerShell provider",
+    "scripts/scan-annotations.ps1: terminates with an explicit exit 0 after flushing its output pipeline",
   ]);
   assert.equal(snapshot.skills.length, 7);
   assert.equal(new Set(snapshot.skills.map(({ id }) => id)).size, 7);

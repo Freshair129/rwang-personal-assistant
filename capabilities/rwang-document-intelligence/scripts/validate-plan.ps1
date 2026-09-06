@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     RWANG Execution Plan validator - checks a PlanEnvelope JSON against an
     execution-mode catalog before it is handed to the target system's dry-run.

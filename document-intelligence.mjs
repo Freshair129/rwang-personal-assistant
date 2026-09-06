@@ -11,7 +11,7 @@ import {
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const DOCUMENT_INTELLIGENCE_VERSION = "1.3.0";
+export const DOCUMENT_INTELLIGENCE_VERSION = "1.4.0";
 
 const MODULE_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const CAPABILITY_RELATIVE_PATH = path.join("capabilities", "rwang-document-intelligence");
@@ -39,27 +39,31 @@ const SCAN_SKIPPED_DIRECTORIES = new Set([
 const PINNED_SOURCE = Object.freeze({
   sourceUrl: "https://github.com/Freshair129/rwang-plugin.git",
   version: DOCUMENT_INTELLIGENCE_VERSION,
-  tag: "v1.3.0",
-  commit: "7354738094432fed22d6e00568315e1a1bd8fe15",
-  artifactName: "rwang-codex-plugin-v1.3.0.zip",
-  artifactSha256: "4225e902d65ebffe9e9af945376c9b6b459f7bccc4c67a04dc80a6ad01d13432",
-  excluded: Object.freeze(["hooks/", "scripts/bump-version.ps1"]),
-  normalization: Object.freeze(["line-endings-per-project-gitattributes", "trim-trailing-whitespace"]),
+  tag: "v1.4.0",
+  commit: "42ef41ffff3b62dcfd88ac28780d8f0d26b1c617",
+  artifactName: "rwang-codex-plugin-v1.4.0.zip",
+  artifactSha256: "d93209d15b3b154327bb04d7e15452465b3743441e81d6b21fd6ccb037bc217a",
+  excluded: Object.freeze(["hooks/", "scripts/drift-check.ps1", "scripts/bump-version.ps1"]),
+  normalization: Object.freeze(["line-endings-per-project-gitattributes", "trim-trailing-whitespace", "keep-utf8-bom-on-ps1: Windows PowerShell 5.1 reads a BOM-less script in the system codepage, which mangles the section sign in the @designs pattern and drops every @designs annotation without reporting anything. Earlier vendored copies stripped it."]),
   adaptations: Object.freeze([
     "scripts/scan-annotations.ps1: bounded enumeration skips ignored directories and reparse points before recursion",
+    "scripts/scan-annotations.ps1: no Get-ChildItem at all — directories are enumerated through [IO.Directory]::EnumerateDirectories so provider entries are never materialized before pruning",
+    "scripts/scan-annotations.ps1: traversal state is constructed as Stack[string]]::new(), not New-Object, so it does not depend on cmdlet resolution",
+    "scripts/scan-annotations.ps1: the root is resolved without Resolve-Path, so it is not resolved through the PowerShell provider",
+    "scripts/scan-annotations.ps1: terminates with an explicit exit 0 after flushing its output pipeline",
   ]),
 });
 
 const RUNTIME_FILE_SHA256 = Object.freeze({
-  "SOURCE.json": "3d36f4d0ec50aabaab003e36c136fb816a31bf94a6b9d1101f43784330549506",
-  ".codex-plugin/plugin.json": "5785bb48f9be98902e281f1c3ccf7f8dd3d7a030eac926659358f4fa24a21f45",
+  "SOURCE.json": "c11a75f77897d96e77d0bb177936663143f41c3f4bf51ac8ea373dab6ea3e6c0",
+  ".codex-plugin/plugin.json": "db5f56b0686c716c16e632b8e3e0f895469766d31fec87711625422fcc8e226f",
   "references/execution-modes/zuri-v2.catalog.json": "96f0719b93a9f7addbbc101b0e14f4025cf03788b54387b454f29a60d3675273",
-  "scripts/scan-annotations.ps1": "a6ea2f9299d49e7da1276286c297a03b9925512556b288ae8872177fd328b033",
-  "scripts/validate-graph.ps1": "4ca070f89d45bf74518670db366e97c0f6ef952350de648e6debd841b4d36efc",
-  "scripts/validate-plan.ps1": "c303935b9aa000e9a8dcbf7e5bc6d91c46af2b9417e76124ebd7438845e9ecd4",
+  "scripts/scan-annotations.ps1": "ad1e021ff481dec2edb15dc9fac7cf43f2c0e234b455827d2bb4722fa2da6133",
+  "scripts/validate-graph.ps1": "3cb3d37f295aae3f5542205e71a0928f2677c5ff313be173bc5095fef3ee10cf",
+  "scripts/validate-plan.ps1": "c842228076462032d801ea026b9727741d1a7fa6d401b713b914842fe2a52758",
   "skills/doc-architect/SKILL.md": "432a04564efc87fc421e110589b33b83a4e762bd5524c173deb389070f452ec0",
-  "skills/doc-preflight/SKILL.md": "c76b7741f422582b383d66e555c65d423dc462a7afca987a8b72f33d1d7691ed",
-  "skills/doc-graph/SKILL.md": "00c22e03452d201866d8f70585a65eaffdadf617e13d8a68ae1dc5387e3fa8a9",
+  "skills/doc-preflight/SKILL.md": "3e641388f5b5f9a0adb0f7f3b6f9e1943fcc475395750778749ef5d56621017d",
+  "skills/doc-graph/SKILL.md": "5e61fa98c1466143a61a8fd43d4f5f53ec99ec33541c8bacd21b811fce84f7ae",
   "skills/implementation-plan/SKILL.md": "840dc8998e9c400fa9050f49396704d028c539647a4a2ccfe87e275e22bac0c3",
   "skills/exec-plan/SKILL.md": "89237299473d1c7c47eb84b55267cbab3f131ef72df20da7a3fa4204b32aaa05",
   "skills/subagent-driven/SKILL.md": "b859149cf09e3e146a33e919fb4bd4e8496a2bdf00a22e27ef3c57abbab6825b",
@@ -247,7 +251,7 @@ function validateSourceMetadata(source) {
     || !compareStringLists(normalization, [...expected.normalization].sort())
     || !compareStringLists(adaptations, [...expected.adaptations].sort())
   ) {
-    failIntegrity("SOURCE.json does not match the pinned v1.3.0 release");
+    failIntegrity("SOURCE.json does not match the pinned v1.4.0 release");
   }
 }
 

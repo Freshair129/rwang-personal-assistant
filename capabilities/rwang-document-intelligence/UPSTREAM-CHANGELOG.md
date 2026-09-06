@@ -4,6 +4,72 @@ All notable changes to the RWANG plugin. Versions follow semver; the
 `version` field in `.claude-plugin/plugin.json` is the update signal for
 marketplace installs.
 
+## [1.4.0] — 2026-09-06
+
+`@tested` reads in both directions, and the scanner says which one it read.
+
+### Added
+- **`@tested <ID>, …` on a test file** — "this test verifies these requirements" — alongside the
+  existing `@tested <file>` on a source file — "this code is verified by that test". Both assert the
+  same `verified_by` relation; they differ only in which end the annotated file is. A project
+  maintains its traceability from one side or the other, and the grammar previously understood only
+  one of them, so every repository that annotates its tests scanned as having no annotations at all.
+  Annotating from the test side is often the more durable choice: the assertion and the claim it
+  verifies sit in one file, so deleting the test takes its claim with it.
+- **`form` on every structured annotation** — `test-ref`, `requirement`, or `section`. It describes
+  what the payload *is*, not which keyword introduced it, which is the distinction a consumer needs:
+  `@designs` already took either a section or an id, and `@tested` now takes either a path or ids.
+  Switching on the keyword alone meant re-parsing the value to find out what you were holding.
+- Tests: both `@tested` forms, `form` classification across `@req` / `@designs` / `@tested`, and a
+  payload that is neither a path nor an id being refused. The cross-scanner parity check covers the
+  new form.
+
+### Changed
+- `scan-annotations.sh` accepts the same two payloads, so the two halves still agree. Verified on a
+  real repository: `src/` 80 annotations / 76 ids and `tests/` 69 / 70, identical from both scanners
+  — the test tree had read as **0 annotations** in both before this.
+- Docs: the annotation table in `skills/doc-graph`, the examples in `README`, the `@tested` check in
+  `skills/doc-preflight`, and the `@tested` description in `references/doc-graph-schema.json`.
+
+## [1.3.1] — 2026-09-06
+
+Scanner correctness. `scan-annotations` is the only thing that turns a comment into a graph edge, so
+everything it silently drops is a link that never existed as far as every downstream skill is
+concerned. None of these failures were reported — each one produced a smaller, confident report.
+
+### Fixed
+- **Namespaced ids are captured whole.** `ZPP-FR-009`, `RAG-GR-004`, `TAX-NFR-001`: a project that
+  prefixes its ids does so precisely because its `FR-009` is not the flat `FR-009`. The `.sh` scanner
+  matched the flat id *inside* the namespaced one and reported `FR-009` — not a lost prefix, a
+  different requirement asserted with full confidence. The `.ps1` scanner dropped such ids entirely.
+  Both now accept `NS-KIND-nnn`, and `AI-AGT-001` / `AI-ETH-001` fall out of the same branch.
+- **The skip list matches directories, not substrings** (`.ps1`). It was compared against the whole
+  path, so `build` swallowed `builder.ts`, `dist` swallowed `distance.ts`, and `venv` swallowed
+  anything below a folder whose name merely contained the letters. Those files reported nothing and
+  were never listed as skipped.
+- **One unrecognised id no longer discards its neighbours** (`.ps1`). `@spec FR-093, ADR-058` lost
+  `FR-093` too, because `ADR` is not an enumerated kind and the pattern had to consume the whole
+  line. The annotation was never flagged as malformed — it simply vanished.
+- **A UTF-8 BOM no longer hides the first line** (`.sh`). Windows editors and
+  `Set-Content -Encoding utf8` write one, and every `^`-anchored pattern failed on line 1 — which is
+  where a file-level annotation goes. `Get-Content` strips it, so the two scanners disagreed by one
+  line per file and neither looked wrong on its own machine.
+- **An annotation-free tree is an empty report, not a crash** (`.sh`). Under `set -euo pipefail` the
+  grep that matched nothing ended the script before it printed anything; the count it would have
+  printed was a doubled zero, since `grep -c .` both prints `0` and exits non-zero.
+
+### Changed
+- `.sh` now requires a comment prefix for structured annotations and the ids-only form for
+  unstructured ones, matching `.ps1`. It had been counting `const s = "@req FR-999"` as an
+  annotation and any line merely containing an id as a reference.
+- `.sh` validates the `@tested` payload as a test-file reference, as `.ps1` always has.
+
+### Added
+- Tests: namespaced ids captured whole and never truncated, skip-list-word filenames scanned,
+  mixed known/unknown id lists, an empty tree, and a **cross-scanner parity check** — the two halves
+  of one tool must agree on the same tree, or a graph built on Windows differs from the same graph
+  built on Linux and neither is locally wrong.
+
 ## [1.3.0] — 2026-08-20
 
 New skill package: **exec-plan** — machine-executable Execution Plans.

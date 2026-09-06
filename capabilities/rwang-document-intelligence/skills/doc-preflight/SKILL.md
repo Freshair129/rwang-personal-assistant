@@ -215,7 +215,8 @@ If the project uses structured annotations (@req, @spec, @designs, @tested), che
 
 ```
 1. Annotations reference valid requirement IDs
-2. @tested annotations have corresponding test files
+2. @tested annotations resolve: a test reference names a file that exists; requirement IDs
+   on a test file are registered
 3. @designs annotations point to existing design doc sections
 4. No orphaned annotations (referencing deleted requirements)
 ```
