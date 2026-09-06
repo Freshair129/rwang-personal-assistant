@@ -121,6 +121,15 @@ RWANG recognizes structured annotations in code comments:
 // @tested __tests__/generation.test.ts
 ```
 
+`@tested` takes either a test reference (on the source file) or requirement IDs (on the test file).
+Both assert the same relation from opposite ends, so a project can annotate whichever side it
+maintains:
+
+```typescript
+// __tests__/generation.test.ts
+// @tested FR-001, SDD-004 — what these cases pin
+```
+
 These annotations create bidirectional links in the document graph, enabling automatic traceability and drift detection.
 
 ## Document Templates

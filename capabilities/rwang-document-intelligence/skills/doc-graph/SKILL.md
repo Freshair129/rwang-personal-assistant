@@ -116,13 +116,32 @@ Structured annotations in code that create bidirectional links:
 // @tested __tests__/generation.test.ts
 ```
 
+`@tested` reads in both directions, because a project maintains its traceability from one side or
+the other and both assert the same `verified_by` relation:
+
+```typescript
+// src/generation.ts — annotated from the source side
+// @tested __tests__/generation.test.ts::creates_generation
+```
+
+```typescript
+// __tests__/generation.test.ts — annotated from the test side
+// @tested FR-001, SDD-004 — what these cases actually pin
+```
+
+Annotating from the test side is often the more durable of the two: the assertion and the claim that
+it verifies a requirement sit in one file, so a deleted test takes its claim with it. The scanner
+reports which form it found in `form` (`test-ref` or `requirement`), so a consumer reads the payload
+rather than guessing from the keyword.
+
 **Annotation types**:
 | Annotation | Meaning | Links To |
 |------------|---------|----------|
 | `@req <ID>` | This code implements requirement <ID> | requirement node |
 | `@spec <ID>` | This code follows design decision <ID> | requirement/section node |
 | `@designs <section>` | This code is designed in <section> | section node |
-| `@tested <file>` | This code is tested by <file> | test node |
+| `@tested <file>` | This code is verified by <file> — written on the **source** file | test node |
+| `@tested <ID>, …` | This test verifies <ID> — written on the **test** file | requirement node |
 
 ## Process
 

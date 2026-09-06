@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     RWANG Core graph validator - contract validation + exact-set reconciliation
     (CR-2026-08-20-01 A2 §2.2, §2.9; SPEC-5DRIVEN-01 A2 §2.3).
