@@ -34,7 +34,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 # File extensions to scan
-$Extensions = @("*.ts", "*.tsx", "*.js", "*.jsx", "*.py", "*.go", "*.java", "*.rs", "*.cs", "*.ps1")
+$Extensions = @("*.ts", "*.tsx", "*.js", "*.jsx", "*.mjs", "*.py", "*.go", "*.java", "*.rs", "*.cs", "*.ps1")
 
 # Directories to skip
 $SkipDirs = @("node_modules", ".pnpm-store", "__pycache__", ".venv", "venv", ".git", "dist", "build", ".next", "coverage")
@@ -57,8 +57,8 @@ $CommentPrefix = '^\s*(?:#|//|--|\*+)\s*'
 # what keeps it safe: three dash-separated segments ending in exactly three digits is specific
 # enough to be an id, while a bare two-letter kind would not be.
 $NamespacedId = '[A-Z][A-Z0-9]{1,4}-[A-Z]{2,4}-\d{3}'
-$RequirementId = "(?:$NamespacedId|FR-[a-z]\d{5}|FEAT-[a-z]\d{2}|(?:FR|NFR|SDD|SEC|AI-AGT|AI-ETH|BR|AC|DR|IR)-\d{3})"
-$TestReference = '[A-Za-z0-9_./\\-]+\.(?:ts|tsx|js|jsx|py|go|rs|java|cs|ps1)(?:::[A-Za-z0-9_\-]+)?'
+$RequirementId = "(?:$NamespacedId|FR-[a-z]\d{5}|FEAT-[a-z]\d{2}|(?:FR|NFR|SDD|PER|SEC|AI-AGT|AI-ETH|BR|AC|DR|IR)-\d{3})"
+$TestReference = '[A-Za-z0-9_./\\-]+\.(?:ts|tsx|js|jsx|mjs|py|go|rs|java|cs|ps1)(?:::[A-Za-z0-9_\-]+)?'
 $UnstructuredPattern = "$CommentPrefix(?<ids>$RequirementId(?:\s*,\s*$RequirementId)*)\s*$"
 
 # Annotation patterns

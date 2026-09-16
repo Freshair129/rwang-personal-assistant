@@ -63,7 +63,9 @@ jobs:
         run: .\scripts\stage-desktop-runtime.ps1 -ReplaceExisting
 
       - name: Run post-stage security checks
-        run: pnpm test:security
+        run: |
+          pnpm test:planner
+          pnpm test:security
 
       - name: Run desktop contract tests
         run: |
@@ -132,6 +134,7 @@ jobs:
 
       - name: Verify the staged runtime security contract
         run: |
+          pnpm test:planner
           pnpm test:security
           pnpm test:desktop-package
           pnpm test:model-selector-layout

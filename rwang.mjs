@@ -9,6 +9,7 @@ import { Experimental_StdioMCPTransport } from "@ai-sdk/mcp/mcp-stdio";
 import { ToolLoopAgent, detectToolDrift, fingerprintTools, isStepCount, tool } from "ai";
 import { z } from "zod";
 import { createDocumentIntelligence } from "./document-intelligence.mjs";
+import { createPlanner } from "./planner.mjs";
 
 const ASSISTANT_NAME = "RWANG";
 const DEFAULT_WAKE_WORD = "อาหวัง";
@@ -552,6 +553,7 @@ export async function createRwangCore({
   let activePairing = null;
   let activeDocumentAudit = null;
   let lastDocumentAudit = null;
+  let planner = null;
   const approvals = new Map();
   const pairingRateBuckets = new Map();
   const integrationStatus = {
@@ -566,6 +568,22 @@ export async function createRwangCore({
   });
 
   await writeJsonAtomic(configFile, configTempFile, config);
+
+  // Productivity storage is an optional local domain. A corrupt or
+  // unsupported planner snapshot must remain isolated from chat, schedules,
+  // and the other RWANG capabilities during startup.
+  try {
+    planner = await createPlanner({
+      dataDir: dataRoot,
+      ollamaUrl,
+      defaultModel: config.assistant.defaultModel,
+      timeZone: config.scheduler.timeZone,
+    });
+    if (!planner.status().available) audit("warn", `Planner ไม่พร้อม: ${planner.status().code}`);
+  } catch (error) {
+    planner = null;
+    audit("warn", `Planner ไม่พร้อมใช้งาน: ${error?.code || "STARTUP_FAILED"}`);
+  }
 
   function pruneApprovals() {
     const timestamp = Date.now();
@@ -1868,6 +1886,98 @@ export async function createRwangCore({
   }
 
   async function handleApi(req, res, url, { readBody, json }) {
+    if (url.pathname.startsWith("/api/rwang/planner/")) {
+      if (!isLocal(req)) return json(res, 403, {
+        ok: false,
+        error: "Planner ใช้ได้จากเครื่องหลักเท่านั้น",
+        code: "LOCAL_ONLY",
+      });
+      if (!planner) return json(res, 503, {
+        ok: false,
+        error: "Planner ยังไม่พร้อมใช้งาน",
+        code: "PLANNER_UNAVAILABLE",
+      });
+      try {
+        const suffix = url.pathname.slice("/api/rwang/planner/".length);
+        if (req.method === "GET" && suffix === "state") {
+          return json(res, 200, { ok: true, state: await planner.getState() });
+        }
+        if (req.method === "GET" && suffix === "tasks") {
+          return json(res, 200, {
+            ok: true,
+            ...(await planner.searchTasks({
+              query: url.searchParams.get("query") || "",
+              status: url.searchParams.get("status") || undefined,
+              archived: url.searchParams.has("archived") ? url.searchParams.get("archived") === "true" : undefined,
+            })),
+          });
+        }
+        if (req.method === "GET" && suffix === "insights") {
+          return json(res, 200, { ok: true, insights: await planner.getInsights({
+            from: url.searchParams.get("from") || undefined,
+            to: url.searchParams.get("to") || undefined,
+            timeZone: url.searchParams.get("timeZone") || undefined,
+          }) });
+        }
+        if (req.method !== "POST") return false;
+        const body = await readBody(req);
+        if (suffix === "tasks") {
+          const context = {
+            baseRevision: body.baseRevision,
+            operationId: body.operationId,
+            archivePreviewId: body.archivePreviewId,
+          };
+          let result;
+          if (body.action === "create") result = await planner.createTask(body.task, context);
+          else if (body.action === "update") result = await planner.updateTask(body.id, body.task || {}, context);
+          else if (body.action === "complete") result = await planner.completeTask(body.id, context);
+          else if (body.action === "reopen") result = await planner.reopenTask(body.id, context);
+          else if (body.action === "archive") result = await planner.archiveTask(body.id, context);
+          else if (body.action === "search") return json(res, 200, { ok: true, ...(await planner.searchTasks(body)) });
+          else return json(res, 400, { ok: false, error: "ไม่รู้จัก task action", code: "VALIDATION_ERROR" });
+          return json(res, 200, { ok: true, ...result });
+        }
+        if (suffix === "draft") return json(res, 200, { ok: true, draft: await planner.createDraft(body) });
+        if (suffix === "plan/preview") return json(res, 200, { ok: true, preview: await planner.previewPlan(body) });
+        if (suffix === "plan/apply") return json(res, 200, { ok: true, ...(await planner.applyPlan(body, {
+          baseRevision: body.baseRevision,
+          operationId: body.operationId,
+        })) });
+        if (suffix === "preferences") return json(res, 200, { ok: true, ...(await planner.updatePreferences(body.preferences || body, {
+          baseRevision: body.baseRevision,
+          operationId: body.operationId,
+        })) });
+        if (suffix === "focus") {
+          const context = { baseRevision: body.baseRevision, operationId: body.operationId };
+          let result;
+          if (body.action === "start") result = await planner.startFocus(body, context);
+          else if (body.action === "pause") result = await planner.pauseFocus(body, context);
+          else if (body.action === "resume") result = await planner.resumeFocus(body, context);
+          else if (body.action === "finish") result = await planner.finishFocus(body, context);
+          else if (body.action === "heartbeat") result = await planner.heartbeatFocus(body);
+          else return json(res, 400, { ok: false, error: "ไม่รู้จัก focus action", code: "VALIDATION_ERROR" });
+          return json(res, 200, { ok: true, state: result.state || result });
+        }
+        return false;
+      } catch (error) {
+        const status = Number.isInteger(error?.httpStatus)
+          ? error.httpStatus
+          : Number.isInteger(error?.status) && error.status >= 400 && error.status <= 599
+            ? error.status
+            : 400;
+        const payload = {
+          ok: false,
+          error: cleanText(error?.message || error, 400),
+          code: cleanText(error?.code, 80) || "PLANNER_ERROR",
+        };
+        if (error?.details?.currentRevision !== undefined) payload.currentRevision = error.details.currentRevision;
+        if (error?.details?.preview) {
+          payload.preview = error.details.preview;
+          payload.archivePreviewId = error.details.archivePreviewId;
+        }
+        return json(res, status, payload);
+      }
+    }
     if (req.method === "GET" && url.pathname === "/api/rwang") return json(res, 200, await snapshot(req));
     if (req.method === "POST" && url.pathname === "/api/rwang/document-intelligence") {
       if (!isLocal(req)) return json(res, 403, { ok: false, error: "Document Intelligence สั่งตรวจได้จากเครื่องหลักเท่านั้น" });
@@ -1988,7 +2098,7 @@ export async function createRwangCore({
     handleApi,
     close: async () => {
       if (scheduleTimer) clearInterval(scheduleTimer);
-      await Promise.allSettled([configWriteChain, fingerprintWriteChain, activeDocumentAudit, documentIntelligence.close()]);
+      await Promise.allSettled([configWriteChain, fingerprintWriteChain, activeDocumentAudit, planner?.close?.(), documentIntelligence.close()]);
     },
   };
 }

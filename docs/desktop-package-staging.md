@@ -1,7 +1,7 @@
 ---
-version: "0.1.0b"
+version: "0.2.0b"
 created_at: "2026-09-03T02:33:20+07:00,Freshair129,3a6657caf0519f54b8bee05658f3047856e64b65"
-last_update: "2026-09-04T06:02:32+07:00,RWANG"
+last_update: "2026-09-17T02:01:08+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -70,12 +70,13 @@ desktop/stage/rwang/
   entrypoint.mjs
   server.mjs
   rwang.mjs
+  planner.mjs                  # approved local productivity domain
   remote.mjs
   spotlight.mjs
   document-intelligence.mjs
   package.json                 # runtime-only manifest; no devDependencies
   node_modules/                # pnpm --prod, hoisted, materialized
-  public/                      # includes vendor WASM/task assets
+  public/                      # includes planner.js and vendor WASM/task assets
   capabilities/
   runtime/node/node.exe        # pinned official Node v24.20.0
   runtime/node/LICENSE         # from the same official distribution
@@ -148,6 +149,7 @@ pnpm install --frozen-lockfile
 pnpm check
 pnpm desktop:runtime
 pnpm desktop:stage
+pnpm test:planner
 pnpm test:security
 pnpm test:desktop-package
 pnpm test:model-selector-layout
@@ -166,6 +168,7 @@ exercises `-DryRun` and asserts that it does not mutate an existing stage.
 
 | From | To | Change |
 |---|---|---|
+| 0.1.0b | 0.2.0b | Include planner backend/frontend modules and the post-stage planner gate |
 | Unversioned | 0.1.0b | Record the deterministic pnpm mode, shell-independent hashing, secret-file exclusion, and post-stage gates |
 | Product 0.5.0 | Product 0.5.0 | Release contract correction only; no product version bump |
 
@@ -173,4 +176,5 @@ exercises `-DryRun` and asserts that it does not mutate an existing stage.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
+| 0.2.0b | 2026-09-17 | beta | Document the approved planner modules and gate in staged desktop resources | UNCOMMITTED | RWANG |
 | 0.1.0b | 2026-09-04 | beta | Align runtime staging documentation with the implemented security and CI contract | ba1200d | RWANG |

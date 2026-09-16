@@ -342,6 +342,7 @@ function Assert-RequiredRuntime([string]$Root) {
         "entrypoint.mjs",
         "server.mjs",
         "rwang.mjs",
+        "planner.mjs",
         "remote.mjs",
         "spotlight.mjs",
         "document-intelligence.mjs",
@@ -353,6 +354,7 @@ function Assert-RequiredRuntime([string]$Root) {
         "public/app.js",
         "public/perception.js",
         "public/remote-client.js",
+        "public/planner.js",
         "public/service-worker.js",
         "public/vendor/tasks-vision.mjs",
         "capabilities/rwang-document-intelligence/SOURCE.json"
@@ -460,6 +462,7 @@ try {
         "desktop/runtime/entrypoint.mjs" = "entrypoint.mjs"
         "server.mjs" = "server.mjs"
         "rwang.mjs" = "rwang.mjs"
+        "planner.mjs" = "planner.mjs"
         "remote.mjs" = "remote.mjs"
         "spotlight.mjs" = "spotlight.mjs"
         "document-intelligence.mjs" = "document-intelligence.mjs"

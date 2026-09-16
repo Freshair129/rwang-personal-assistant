@@ -35,3 +35,6 @@ jobs:
 
       - name: Run security smoke tests
         run: pnpm test:security
+
+      - name: Run planner domain and HTTP security tests
+        run: pnpm test:planner

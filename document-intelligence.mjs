@@ -51,14 +51,17 @@ const PINNED_SOURCE = Object.freeze({
     "scripts/scan-annotations.ps1: traversal state is constructed as Stack[string]]::new(), not New-Object, so it does not depend on cmdlet resolution",
     "scripts/scan-annotations.ps1: the root is resolved without Resolve-Path, so it is not resolved through the PowerShell provider",
     "scripts/scan-annotations.ps1: terminates with an explicit exit 0 after flushing its output pipeline",
+    "scripts/scan-annotations.ps1 and scan-annotations.sh: scan the repository's .mjs modules and test references",
+    "scripts/scan-annotations.ps1 and scan-annotations.sh: recognize the Persona PRD PER-xxx requirement identifiers",
   ]),
 });
 
 const RUNTIME_FILE_SHA256 = Object.freeze({
-  "SOURCE.json": "c11a75f77897d96e77d0bb177936663143f41c3f4bf51ac8ea373dab6ea3e6c0",
+  "SOURCE.json": "ff67512fb64116f1ae8ac283df219e288e4469e6388b337babf740222a68dabf",
   ".codex-plugin/plugin.json": "db5f56b0686c716c16e632b8e3e0f895469766d31fec87711625422fcc8e226f",
   "references/execution-modes/zuri-v2.catalog.json": "96f0719b93a9f7addbbc101b0e14f4025cf03788b54387b454f29a60d3675273",
-  "scripts/scan-annotations.ps1": "ad1e021ff481dec2edb15dc9fac7cf43f2c0e234b455827d2bb4722fa2da6133",
+  "scripts/scan-annotations.ps1": "24acf96d3d23aba245085188f55dddfc1e81c235f60506be10b8dff2a7943ba0",
+  "scripts/scan-annotations.sh": "fb87a8981457be605d35161c2d712b0a2c6b34757d135b03b3ccb85a39dbdaff",
   "scripts/validate-graph.ps1": "3cb3d37f295aae3f5542205e71a0928f2677c5ff313be173bc5095fef3ee10cf",
   "scripts/validate-plan.ps1": "c842228076462032d801ea026b9727741d1a7fa6d401b713b914842fe2a52758",
   "skills/doc-architect/SKILL.md": "432a04564efc87fc421e110589b33b83a4e762bd5524c173deb389070f452ec0",

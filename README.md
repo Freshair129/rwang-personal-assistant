@@ -26,6 +26,7 @@ RWANG คือผู้ช่วยส่วนตัวแบบ local-first �
 - Schedule เก็บ prompt ตามเวลาและให้ผู้ใช้กด RUN; external tool ทุกตัวยังคงผ่าน approval policy เดิม
 - Document Intelligence เป็น core capability: มี 7 playbooks สำหรับสถาปัตยกรรมเอกสาร, preflight, document graph, traceability และ implementation/exec plan พร้อม self-audit แบบอ่านอย่างเดียว
 - **RWANG Spotlight** ค้นหาไฟล์จากดัชนี metadata ในเครื่องด้วย `Ctrl/Cmd + K` พร้อมเปิดไฟล์ชนิดปลอดภัยจาก opaque result ID
+- **PLAN** จัดการงาน วางแผนประจำวัน จับเวลาโฟกัส และดูสถิติจากข้อมูลที่บันทึกจริงบนเครื่องหลัก
 
 ## สิ่งที่ต้องมี
 
@@ -114,6 +115,32 @@ Face Profile และ Voice Profile เป็นการเทียบ templa
 
 สร้าง routine จาก Loadout โดยกำหนดชื่อ เวลา repeat และ prompt เมื่อถึงเวลา RWANG จะแสดงสถานะ DUE แต่ไม่ดำเนิน external action เอง ผู้ใช้ต้องกด RUN เพื่อส่ง prompt เข้า Assistant การเรียก Home Assistant, webhook หรือ MCP ที่เกิดจาก prompt นั้นยังสร้าง approval card ตามปกติ Schedule ที่พลาดเวลาสามารถตั้งให้รอรอบเปิดครั้งถัดไปหรือข้ามได้
 
+## PLAN: งาน แผน โฟกัส และสถิติ
+
+เปิด **PLAN** บนเครื่องหลัก แล้วเลือก **งาน** เพื่อเพิ่มรายละเอียด ระยะเวลา
+กำหนดส่ง และเช็กลิสต์ ลำดับความสำคัญใช้ 1 สูงสุด ถึง 5 ต่ำสุด
+Task Assistant ใช้โมเดล Ollama ที่เลือกช่วยแตกข้อความเป็นร่างงาน;
+ตรวจแก้และบันทึกแต่ละรายการด้วยตัวเองก่อนนำไปใช้
+
+หน้า **วันนี้** ให้ตั้งวันที่ เขตเวลา เวลาว่าง และระดับพลังงานของตัวเอง
+วางบล็อกงาน/พัก/ไม่ว่างแบบ Manual หรือให้ Auto เสนอแผน จากนั้นดูเหตุผล
+ข้อขัดแย้ง และงานที่วางไม่ได้ก่อนกด **ยืนยันแผน** ใช้ Rebuild Day หรือ
+What-if เพื่อดูผลของการเริ่มสาย เปลี่ยนพลังงาน หรือข้ามช่วงไม่ว่างในแผน
+การจำลองจะยังไม่เปลี่ยนแผนจริงจนกดยืนยัน
+
+หน้า **โฟกัส** เริ่มต้นที่ 25 นาที ปรับเวลาและผูกกับงานได้ พร้อมพัก ต่อ
+และจบช่วงโฟกัส การปิดแอปหรือขาดการยืนยันต่อเนื่องจะไม่นับเวลาที่ขาดหาย
+การจบโฟกัสไม่ทำเครื่องหมายว่างานเสร็จให้เอง การเตือนในแอปต้องเปิดใช้ก่อน
+หน้า **สถิติ** แสดงเวลาที่บันทึก ความคืบหน้าเป้าหมาย วันที่โฟกัสต่อเนื่อง
+และกราฟรายชั่วโมง/สัปดาห์พร้อมที่มาของข้อมูล
+
+งานและประวัติบันทึกใน `planner-state.json` ภายใต้ DATA_DIR ที่แยกจาก source
+และ workspace ข้อมูลเสียหายจะหยุดเฉพาะ PLAN พร้อมแจ้งข้อผิดพลาด
+ฟีเจอร์นี้ใช้จาก host เท่านั้น; ยังไม่มี Calendar Sync ในขอบเขต P1–P3
+ดู [สเปกที่อนุมัติ](docs/PRD-RWANG-PRODUCTIVITY.md),
+[API contract](docs/PLANNER-CONTRACT.md) และ
+[ผลตรวจรับจริง](docs/PRODUCTIVITY-GATE-REPORT.md) สำหรับสถานะและข้อจำกัด
+
 ## RWANG Spotlight
 
 กด `Ctrl + K` บน Windows/Linux หรือ `Cmd + K` บน macOS เพื่อเปิดหน้าค้นหาแบบ Spotlight จากหน้า Assistant ดัชนีเริ่มสร้างเบื้องหลังเมื่อเปิด RWANG และรีเฟรชทุก 5 นาที ค่าเริ่มต้นสแกน `Desktop`, `Documents`, `Downloads`, `Pictures`, `Music`, `Videos` และโฟลเดอร์โปรเจกต์ RWANG โดยค้นจากชื่อไฟล์และชื่อโฟลเดอร์ในพาธเท่านั้น ไม่อ่านข้อความภายในไฟล์และไม่บันทึกรายการไฟล์เป็นฐานข้อมูลถาวร
@@ -130,7 +157,7 @@ Face Profile และ Voice Profile เป็นการเทียบ templa
 
 ## Document Intelligence core
 
-RWANG รวม [Freshair129/rwang-plugin](https://github.com/Freshair129/rwang-plugin) เป็นความสามารถหลักแบบ local-first โดย pin ที่ release `v1.3.0` และ commit `7354738094432fed22d6e00568315e1a1bd8fe15` สำเนาที่ใช้รันอยู่ใน `capabilities/rwang-document-intelligence/` จึงไม่ดึงหรือรันโค้ดจาก branch `main` อัตโนมัติ
+RWANG รวม [Freshair129/rwang-plugin](https://github.com/Freshair129/rwang-plugin) เป็นความสามารถหลักแบบ local-first โดย pin ที่ release `v1.4.0` และ commit `42ef41ffff3b62dcfd88ac28780d8f0d26b1c617` สำเนาที่ใช้รันอยู่ใน `capabilities/rwang-document-intelligence/` จึงไม่ดึงหรือรันโค้ดจาก branch `main` อัตโนมัติ
 
 สำเนานี้มี local security adaptation ที่ประกาศใน `SOURCE.json`: annotation scanner จะตัด ignored directories และ reparse points ก่อน recursion เพื่อไม่เดินเข้า dependency-cache junction; ไฟล์ที่รันจริงยังถูกตรวจด้วย SHA-256 แบบ pin
 
@@ -200,6 +227,7 @@ pnpm install      # ติดตั้ง dependencies
 pnpm start        # เปิด RWANG server
 pnpm check        # ตรวจ syntax ของ server, agent, remote และ perception scripts
 pnpm test:security # ตรวจ Spotlight, pairing, token scope, remote grant และ invite replay
+pnpm test:planner # ตรวจ tasks, plans, focus, insights, persistence และ host-only API
 ```
 
 ## เตรียม GitHub

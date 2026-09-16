@@ -1,5 +1,6 @@
 import { createPerceptionController } from "./perception.js";
 import { createRemoteController } from "./remote-client.js";
+import { createPlannerController } from "./planner.js";
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -45,6 +46,7 @@ const state = {
   spotlightSelection: -1,
   spotlightOpening: false,
   spotlightReindexing: false,
+  planner: null,
 };
 
 class ApiError extends Error {
@@ -1034,6 +1036,8 @@ function renderRwang(rwang) {
   state.rwang = rwang;
   const localAccess = rwang.access?.local === true;
   $("#spotlightButton").hidden = !localAccess;
+  const plannerButton = $('[data-view="plan"]');
+  if (plannerButton) plannerButton.hidden = !localAccess;
   if (!localAccess && $("#spotlightDialog").open) closeSpotlight();
   const identity = rwang.identity || {};
   $("#wakeWordDisplay").textContent = identity.wakeWord || "อาหวัง";
@@ -1050,6 +1054,7 @@ function renderRwang(rwang) {
   renderWebhooks(rwang.webhooks || []);
   renderLoadout(rwang);
   setLocalConfigurationMode(rwang.access?.local !== false);
+  state.planner?.setContext(state.status || { rwang });
   $("#footerStatus").textContent = rwang.access?.local
     ? "PRIVATE BY DEFAULT · HUMAN APPROVAL ENABLED"
     : "REMOTE AUTHENTICATED · HUMAN APPROVAL ENABLED";
@@ -1174,6 +1179,7 @@ function renderStatus(status) {
   renderHeader(status);
   syncModelSelects(status);
   renderSystems(status);
+  state.planner?.setContext(status);
 }
 
 async function refreshStatus({ silent = false } = {}) {
@@ -1965,15 +1971,19 @@ async function sendRemoteButtonCommand(event) {
 }
 
 function switchView(name) {
-  const target = ["assistant", "loadout", "systems"].includes(name) ? name : "assistant";
-  for (const [viewName, selector] of [["assistant", "#assistantView"], ["loadout", "#loadoutView"], ["systems", "#systemsView"]]) {
+  const requested = ["assistant", "loadout", "systems", "plan"].includes(name) ? name : "assistant";
+  const target = requested === "plan" && state.rwang?.access?.local === false ? "assistant" : requested;
+  for (const [viewName, selector] of [["assistant", "#assistantView"], ["loadout", "#loadoutView"], ["systems", "#systemsView"], ["plan", "#planView"]]) {
     const view = $(selector);
+    if (!view) continue;
     const active = viewName === target;
     view.hidden = !active;
     view.classList.toggle("active", active);
   }
   for (const button of $$(".nav-button")) button.classList.toggle("active", button.dataset.view === target);
   history.replaceState(null, "", `${location.pathname}${location.search}#${target}`);
+  if (target === "plan") state.planner?.activate();
+  else state.planner?.deactivate();
   if (target !== "assistant") void refreshStatus({ silent: true });
 }
 
@@ -2481,7 +2491,7 @@ async function rotateAccessToken() {
 function setupPwa() {
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", () => navigator.serviceWorker
-      .register("/service-worker.js?v=8", { updateViaCache: "none" })
+      .register("/service-worker.js?v=10", { updateViaCache: "none" })
       .catch(() => {}));
   }
   window.addEventListener("beforeinstallprompt", (event) => {
@@ -2541,6 +2551,9 @@ async function enterScopedViewer(reference) {
 
 function bindEvents() {
   for (const button of $$(".nav-button")) button.addEventListener("click", () => switchView(button.dataset.view));
+  window.addEventListener("rwang-plan-blocked", () => {
+    if (location.hash === "#plan") switchView("assistant");
+  });
   $("#spotlightButton").addEventListener("click", openSpotlight);
   $("#spotlightCloseButton").addEventListener("click", closeSpotlight);
   $("#spotlightReindexButton").addEventListener("click", () => void reindexSpotlight());
@@ -2773,6 +2786,13 @@ function bindEvents() {
 async function bootstrap() {
   scrubLegacyAccessToken();
   bindEvents();
+  state.planner = createPlannerController({
+    apiFetch,
+    getStatus: () => state.status,
+    getRwang: () => state.rwang,
+    notify: showToast,
+  });
+  state.planner.init();
   const platform = navigator.userAgentData?.platform || navigator.platform || "";
   $("#spotlightShortcutLabel").textContent = /mac/i.test(platform) ? "⌘ K" : "CTRL K";
   setupPwa();
@@ -2787,7 +2807,7 @@ async function bootstrap() {
     await enterScopedViewer(shareReference);
     return;
   }
-  const requestedView = ["#assistant", "#loadout", "#systems"].includes(location.hash) ? location.hash.slice(1) : "assistant";
+  const requestedView = ["#assistant", "#loadout", "#systems", "#plan"].includes(location.hash) ? location.hash.slice(1) : "assistant";
   switchView(requestedView);
   const status = await refreshStatus();
   if (status && $("#wakeToggle").checked) scheduleWakeRestart();

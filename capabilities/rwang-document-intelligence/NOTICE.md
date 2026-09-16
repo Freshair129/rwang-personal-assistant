@@ -1,11 +1,11 @@
 # RWANG Document Intelligence vendoring notice
 
 This directory is vendored from
-`https://github.com/Freshair129/rwang-plugin.git`, tag `v1.3.0`, commit
-`7354738094432fed22d6e00568315e1a1bd8fe15`.
+`https://github.com/Freshair129/rwang-plugin.git`, tag `v1.4.0`, commit
+`42ef41ffff3b62dcfd88ac28780d8f0d26b1c617`.
 
 The published Codex release asset for the same tag has SHA-256
-`4225e902d65ebffe9e9af945376c9b6b459f7bccc4c67a04dc80a6ad01d13432`.
+`d93209d15b3b154327bb04d7e15452465b3743441e81d6b21fd6ccb037bc217a`.
 This vendored subset was taken from the pinned Git commit because the Codex
 asset omits documents referenced by the skills. See `SOURCE.json` for
 machine-readable provenance. Text files are normalized to this project's

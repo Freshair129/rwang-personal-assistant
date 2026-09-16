@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { appendFile, cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -20,6 +21,31 @@ const scannerSource = await readFile(
   path.join(rootDir, "capabilities", "rwang-document-intelligence", "scripts", "scan-annotations.ps1"),
   "utf8",
 );
+const shellScannerSource = await readFile(
+  path.join(rootDir, "capabilities", "rwang-document-intelligence", "scripts", "scan-annotations.sh"),
+  "utf8",
+);
+const sourceMetadata = JSON.parse(await readFile(
+  path.join(rootDir, "capabilities", "rwang-document-intelligence", "SOURCE.json"),
+  "utf8",
+));
+const readmeText = await readFile(path.join(rootDir, "README.md"), "utf8");
+const noticeText = await readFile(
+  path.join(rootDir, "capabilities", "rwang-document-intelligence", "NOTICE.md"),
+  "utf8",
+);
+const provenanceTick = String.fromCharCode(96);
+assert.ok(
+  readmeText.includes("release " + provenanceTick + "v" + sourceMetadata.version + provenanceTick)
+    && readmeText.includes("commit " + provenanceTick + sourceMetadata.commit + provenanceTick),
+  "README provenance must match SOURCE.json",
+);
+assert.ok(
+  noticeText.includes("tag " + provenanceTick + "v" + sourceMetadata.version + provenanceTick + ", commit")
+    && noticeText.includes(provenanceTick + sourceMetadata.commit + provenanceTick)
+    && noticeText.includes(provenanceTick + sourceMetadata.artifact.sha256 + provenanceTick),
+  "vendoring notice provenance must match SOURCE.json",
+);
 assert.doesNotMatch(scannerSource, /Get-ChildItem[^\r\n]*-Recurse/i,
   "the scanner must prune ignored directories and reparse points before recursion");
 assert.doesNotMatch(scannerSource, /Get-ChildItem/i,
@@ -38,7 +64,64 @@ assert.match(scannerSource, /Path\]::GetFullPath\(\$Path\)/,
   "the scanner must resolve its root without provider traversal");
 assert.match(scannerSource, /FileAttributes\]::ReparsePoint/,
   "the scanner must reject reparse points before enqueueing directories");
+assert.match(scannerSource, /\*\.mjs/,
+  "the PowerShell scanner must include the host repository's .mjs modules");
+assert.match(scannerSource, /SDD\|PER\|SEC/,
+  "the PowerShell scanner must include Persona requirement identifiers");
+assert.match(scannerSource, /js\|jsx\|mjs\|py/,
+  "the PowerShell scanner must accept .mjs test references");
+assert.match(shellScannerSource, /EXTENSIONS="[^"]*mjs/,
+  "the shell scanner must include the host repository's .mjs modules");
+assert.match(shellScannerSource, /js\|jsx\|mjs\|py/,
+  "the shell scanner must accept .mjs test references");
+assert.match(shellScannerSource, /SDD\|PER\|SEC/,
+  "the shell scanner must include Persona requirement identifiers");
 const capability = createDocumentIntelligence({ rootDir });
+
+function runPowerShell(command, args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: rootDir,
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.once("error", reject);
+    child.once("close", (code, signal) => resolve({ code, signal, stdout, stderr }));
+  });
+}
+
+async function verifyScannerHostCoverage() {
+  const fixtureRoot = await mkdtemp(path.join(os.tmpdir(), "rwang-document-intelligence-coverage-"));
+  try {
+    await Promise.all([
+      writeFile(path.join(fixtureRoot, "control.js"), "// @req FR-001\n", "utf8"),
+      writeFile(path.join(fixtureRoot, "backend.mjs"), "// @req FR-002\n", "utf8"),
+      writeFile(path.join(fixtureRoot, "persona.js"), "// @req PER-001\n", "utf8"),
+      writeFile(path.join(fixtureRoot, "test-link.js"), "// @tested tests/persona-contract.mjs\n", "utf8"),
+    ]);
+    const result = await runPowerShell("powershell", [
+      "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+      "-File", path.join(rootDir, "capabilities", "rwang-document-intelligence", "scripts", "scan-annotations.ps1"),
+      "-Path", fixtureRoot, "-Format", "json",
+    ]);
+    assert.equal(result.code, 0, "scanner fixture failed:\n" + result.stdout + "\n" + result.stderr);
+    const report = JSON.parse(result.stdout);
+    const annotations = new Map(report.annotations.map((annotation) => [annotation.file, annotation]));
+    const firstId = (annotation) => Array.isArray(annotation?.ids) ? annotation.ids[0] : annotation?.ids;
+    assert.equal(firstId(annotations.get("backend.mjs")), "FR-002");
+    assert.equal(firstId(annotations.get("persona.js")), "PER-001");
+    assert.equal(annotations.get("test-link.js")?.form, "test-ref");
+    assert.equal(firstId(annotations.get("test-link.js")), "tests/persona-contract.mjs");
+  } finally {
+    await rm(fixtureRoot, { recursive: true, force: true });
+  }
+}
 
 async function verifyTraversalLinkPolicy() {
   const fixtureRoot = await mkdtemp(path.join(os.tmpdir(), "rwang-document-intelligence-links-"));
@@ -118,6 +201,8 @@ try {
     "scripts/scan-annotations.ps1: traversal state is constructed as Stack[string]]::new(), not New-Object, so it does not depend on cmdlet resolution",
     "scripts/scan-annotations.ps1: the root is resolved without Resolve-Path, so it is not resolved through the PowerShell provider",
     "scripts/scan-annotations.ps1: terminates with an explicit exit 0 after flushing its output pipeline",
+    "scripts/scan-annotations.ps1 and scan-annotations.sh: scan the repository's .mjs modules and test references",
+    "scripts/scan-annotations.ps1 and scan-annotations.sh: recognize the Persona PRD PER-xxx requirement identifiers",
   ]);
   assert.equal(snapshot.skills.length, 7);
   assert.equal(new Set(snapshot.skills.map(({ id }) => id)).size, 7);
@@ -184,6 +269,7 @@ try {
   }
 
   if (process.platform === "win32") {
+    await verifyScannerHostCoverage();
     await verifyTraversalLinkPolicy();
 
     const scan = await capability.scanAnnotations();

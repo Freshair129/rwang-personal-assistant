@@ -25,6 +25,7 @@
       <button class="nav-button active" data-view="assistant" type="button">ASSISTANT</button>
       <button class="nav-button" data-view="loadout" type="button">LOADOUT</button>
       <button class="nav-button" data-view="systems" type="button">SYSTEMS</button>
+      <button class="nav-button" data-view="plan" data-local-only="true" type="button" hidden>PLAN</button>
     </nav>
     <div class="top-actions">
       <button class="spotlight-button" id="spotlightButton" type="button" hidden aria-label="ค้นหาไฟล์ในเครื่อง" aria-haspopup="dialog" aria-controls="spotlightDialog">
@@ -447,6 +448,227 @@
           </section>
         </section>
       </div>
+    </section>
+
+    <section class="view planner-view" id="planView" hidden aria-labelledby="plannerTitle">
+      <header class="planner-header">
+        <div>
+          <p class="kicker">วางแผนส่วนตัว / บันทึกในเครื่อง</p>
+          <div class="planner-title-row">
+            <h1 id="plannerTitle">วางแผนกับอาหวัง</h1>
+            <span class="planner-host-state" id="plannerHostState" aria-live="polite">กำลังตรวจสอบสิทธิ์เครื่องหลัก</span>
+          </div>
+          <p class="planner-lede">งาน แผนประจำวัน โฟกัส และสถิติจากข้อมูลที่บันทึกจริงบนเครื่องนี้</p>
+        </div>
+        <div class="planner-revision" aria-label="สถานะแผน">
+          <span>อัปเดตล่าสุด</span>
+          <strong id="plannerRevision">—</strong>
+          <small id="plannerLastUpdated">ยังไม่ได้โหลดข้อมูล</small>
+        </div>
+      </header>
+
+      <nav class="planner-tabs" id="plannerTabs" role="tablist" aria-label="ส่วนของแผน">
+        <button class="planner-tab active" id="plannerTabToday" role="tab" aria-selected="true" aria-controls="plannerPanelToday" data-planner-tab="today" type="button">วันนี้</button>
+        <button class="planner-tab" id="plannerTabTasks" role="tab" aria-selected="false" aria-controls="plannerPanelTasks" data-planner-tab="tasks" type="button">งาน</button>
+        <button class="planner-tab" id="plannerTabFocus" role="tab" aria-selected="false" aria-controls="plannerPanelFocus" data-planner-tab="focus" type="button">โฟกัส</button>
+        <button class="planner-tab" id="plannerTabInsights" role="tab" aria-selected="false" aria-controls="plannerPanelInsights" data-planner-tab="insights" type="button">สถิติ</button>
+      </nav>
+
+      <div class="planner-status" id="plannerStatus" role="status" aria-live="polite"></div>
+
+      <section class="planner-panel planner-panel-today active" id="plannerPanelToday" role="tabpanel" aria-labelledby="plannerTabToday">
+        <div class="planner-toolbar">
+          <div class="planner-date-controls">
+            <button class="secondary-button" id="plannerPrevDate" type="button" aria-label="วันก่อนหน้า">←</button>
+            <label class="planner-field planner-date-field" for="plannerDateInput">วันที่<input id="plannerDateInput" type="date"></label>
+            <button class="secondary-button" id="plannerNextDate" type="button" aria-label="วันถัดไป">→</button>
+            <button class="text-button" id="plannerTodayButton" type="button">วันนี้</button>
+          </div>
+          <div class="planner-plan-actions">
+            <label class="planner-field planner-mode-field" for="plannerModeSelect">วิธีจัดแผน<select id="plannerModeSelect"><option value="manual">Manual · วางเอง</option><option value="auto">Auto · ให้กติกาเสนอ</option><option value="what-if">What-if · จำลองการเปลี่ยน</option></select></label>
+            <button class="secondary-button" id="plannerPreviewButton" type="button">ดูตัวอย่างแผน</button>
+            <button class="secondary-button" id="plannerRebuildButton" type="button">Rebuild Day</button>
+            <button class="primary-button" id="plannerApplyButton" type="button" disabled>ยืนยันแผน</button>
+          </div>
+        </div>
+
+        <div class="planner-summary" aria-label="สรุปวัน">
+          <div><span>งานในแผน</span><strong id="plannerTasksCount">0</strong><small id="plannerTasksCountNote">ยังไม่มีแผนที่ยืนยัน</small></div>
+          <div><span>เสร็จแล้ว</span><strong id="plannerCompletedCount">0</strong><small id="plannerCompletedCountNote">จากงานในแผน</small></div>
+          <div><span>เวลาว่าง</span><strong id="plannerFreeMinutes">—</strong><small id="plannerFreeMinutesNote">รอข้อมูลช่วงเวลาว่าง</small></div>
+          <div><span>อัปเดตล่าสุด</span><strong id="plannerOptimizedAt">—</strong><small id="plannerOptimizedRevision">ยังไม่มีการอัปเดตแผน</small></div>
+        </div>
+
+        <div class="planner-day-grid">
+          <section class="planner-card planner-availability-card" aria-labelledby="plannerAvailabilityTitle">
+            <header class="planner-card-head"><div><p class="kicker">DAY INPUT</p><h2 id="plannerAvailabilityTitle">เวลาว่างและพลังงาน</h2></div><span class="planner-zone" id="plannerTimeZone">—</span></header>
+            <form id="plannerPreferencesForm" class="planner-form planner-preferences-form">
+              <div class="planner-form-grid planner-form-grid-2">
+                <label class="planner-field" for="plannerTimeZoneInput">เขตเวลา (IANA)<input id="plannerTimeZoneInput" maxlength="80" placeholder="Asia/Bangkok" autocomplete="off"></label>
+                <span class="planner-zone planner-zone-help">ใช้กับวันที่และเวลาในแผน</span>
+              </div>
+              <div class="planner-form-grid planner-form-grid-2">
+                <label class="planner-field" for="plannerWorkStart">เริ่มงาน<input id="plannerWorkStart" type="time" required></label>
+                <label class="planner-field" for="plannerWorkEnd">เลิกงาน<input id="plannerWorkEnd" type="time" required></label>
+              </div>
+              <div class="planner-form-grid planner-form-grid-3">
+                <label class="planner-field" for="plannerEnergyMorning">พลังเช้า<select id="plannerEnergyMorning"><option value="1">1 · ต่ำ</option><option value="2">2</option><option value="3">3 · กลาง</option><option value="4">4</option><option value="5">5 · สูง</option></select></label>
+                <label class="planner-field" for="plannerEnergyAfternoon">พลังบ่าย<select id="plannerEnergyAfternoon"><option value="1">1 · ต่ำ</option><option value="2">2</option><option value="3">3 · กลาง</option><option value="4">4</option><option value="5">5 · สูง</option></select></label>
+                <label class="planner-field" for="plannerEnergyEvening">พลังเย็น<select id="plannerEnergyEvening"><option value="1">1 · ต่ำ</option><option value="2">2</option><option value="3">3 · กลาง</option><option value="4">4</option><option value="5">5 · สูง</option></select></label>
+              </div>
+              <label class="planner-field" for="plannerAvailabilityInput">ช่วงเวลาว่างของวันนี้<span class="planner-field-note">หนึ่งช่วงต่อบรรทัด เช่น 09:00–12:00</span><textarea id="plannerAvailabilityInput" rows="3" maxlength="400" placeholder="09:00-12:00\n13:00-17:30"></textarea></label>
+              <button class="secondary-button" type="submit">บันทึกค่าตั้งต้น</button>
+            </form>
+            <p class="planner-footnote">ระดับพลังงานเป็นค่าที่คุณตั้งเองเพื่อช่วยจัดลำดับงาน ไม่ใช่การวัดสุขภาพหรือสมรรถภาพ</p>
+          </section>
+
+          <section class="planner-card planner-what-if-card" aria-labelledby="plannerWhatIfTitle">
+            <header class="planner-card-head"><div><p class="kicker">SIMULATE CHANGE</p><h2 id="plannerWhatIfTitle">What-if</h2></div><span class="planner-badge" id="plannerWhatIfBadge">ยังไม่จำลอง</span></header>
+            <p class="planner-card-copy">ลองปรับวันของคุณ แล้วดูผลต่างก่อนยืนยันแผนจริง</p>
+            <div class="planner-form-grid planner-form-grid-2">
+              <label class="planner-field" for="plannerLateMinutes">เริ่มสาย (นาที)<input id="plannerLateMinutes" type="number" min="0" max="720" step="5" value="0"></label>
+              <label class="planner-field" for="plannerWhatIfEnergy">ความรู้สึกวันนี้<select id="plannerWhatIfEnergy"><option value="">ใช้ค่าพลังงานที่ตั้งไว้</option><option value="1">เหนื่อยมาก</option><option value="2">ค่อนข้างเหนื่อย</option><option value="3">ปกติ</option><option value="4">พร้อม</option><option value="5">มีพลังมาก</option></select></label>
+            </div>
+            <label class="planner-field" for="plannerSkipBusyBlock">busy block ที่ต้องการจำลอง<select id="plannerSkipBusyBlock"><option value="">ไม่ข้าม busy block</option></select></label>
+            <p class="planner-warning" id="plannerWhatIfWarning" hidden>การจำลองนี้ไม่ติดต่อปฏิทิน และจะไม่ปลดล็อก busy block ของแผนจริง</p>
+            <button class="secondary-button" id="plannerWhatIfButton" type="button">สร้าง What-if preview</button>
+          </section>
+        </div>
+
+        <div class="planner-day-grid planner-day-grid-main">
+          <section class="planner-card" aria-labelledby="plannerBlocksTitle">
+            <header class="planner-card-head"><div><p class="kicker">TIMELINE</p><h2 id="plannerBlocksTitle">บล็อกของวัน</h2></div><span class="planner-badge" id="plannerPlanState">ยังไม่มีแผน</span></header>
+            <form id="plannerBlockForm" class="planner-form planner-block-form">
+              <div class="planner-form-grid planner-form-grid-4">
+                <label class="planner-field" for="plannerBlockKind">ประเภท<select id="plannerBlockKind"><option value="task">งาน</option><option value="break">พัก</option><option value="busy">ไม่ว่าง</option></select></label>
+                <label class="planner-field planner-block-task-field" for="plannerBlockTask">งาน<select id="plannerBlockTask"><option value="">เลือกงาน</option></select></label>
+                <label class="planner-field" for="plannerBlockStart">เริ่ม<input id="plannerBlockStart" type="time" required></label>
+                <label class="planner-field" for="plannerBlockEnd">จบ<input id="plannerBlockEnd" type="time" required></label>
+              </div>
+              <div class="planner-form-grid planner-form-grid-2">
+                <label class="planner-field" for="plannerBlockLabel">ชื่อบล็อก<span class="planner-field-note">ใช้กับพักหรือ busy</span><input id="plannerBlockLabel" maxlength="120" placeholder="พักกลางวัน"></label>
+                <label class="planner-check-row planner-block-lock" for="plannerBlockLocked"><input id="plannerBlockLocked" type="checkbox"><span>ล็อกเวลาไว้</span></label>
+              </div>
+              <button class="secondary-button" type="submit">เพิ่มบล็อกในตัวอย่าง</button>
+            </form>
+            <div class="planner-list planner-block-list" id="plannerBlockList" aria-live="polite"><div class="planner-empty">ยังไม่มีบล็อกของวันที่เลือก</div></div>
+          </section>
+          <section class="planner-card planner-preview-card" aria-labelledby="plannerPreviewTitle">
+            <header class="planner-card-head"><div><p class="kicker">PREVIEW / REVIEW</p><h2 id="plannerPreviewTitle">เหตุผลและข้อขัดแย้ง</h2></div><span class="planner-badge" id="plannerPreviewRevision">ยังไม่มี preview</span></header>
+            <div id="plannerPreviewDiff" class="planner-preview-diff"><div class="planner-empty">สร้าง preview เพื่อดูงานที่ย้ายและเวลาที่เปลี่ยน</div></div>
+            <section class="planner-subsection" aria-labelledby="plannerReasonsTitle"><h3 id="plannerReasonsTitle">ทำไมวางตรงนี้</h3><div id="plannerReasonsList" class="planner-reason-list"><div class="planner-empty">ยังไม่มีเหตุผลจากกติกา</div></div></section>
+            <section class="planner-subsection" aria-labelledby="plannerUnscheduledTitle"><h3 id="plannerUnscheduledTitle">ยังวางไม่ได้</h3><div id="plannerUnscheduledList" class="planner-reason-list"><div class="planner-empty">ไม่มีรายการ</div></div></section>
+            <section class="planner-subsection" aria-labelledby="plannerConflictsTitle"><h3 id="plannerConflictsTitle">ข้อขัดแย้ง</h3><div id="plannerConflictsList" class="planner-reason-list"><div class="planner-empty">ยังไม่มีข้อขัดแย้ง</div></div></section>
+          </section>
+        </div>
+      </section>
+
+      <section class="planner-panel" id="plannerPanelTasks" role="tabpanel" aria-labelledby="plannerTabTasks" hidden>
+        <div class="planner-task-layout">
+          <section class="planner-card" aria-labelledby="plannerTaskFormTitle">
+            <header class="planner-card-head"><div><p class="kicker">TASK EDITOR</p><h2 id="plannerTaskFormTitle">เพิ่มงาน</h2></div><button class="text-button" id="plannerTaskCancelEdit" type="button" hidden>ยกเลิกแก้ไข</button></header>
+            <form id="plannerTaskForm" class="planner-form">
+              <input id="plannerTaskId" type="hidden">
+              <label class="planner-field" for="plannerTaskTitle">ชื่องาน<input id="plannerTaskTitle" required maxlength="240" autocomplete="off" placeholder="เช่น เตรียมเอกสารประชุม"></label>
+              <label class="planner-field" for="plannerTaskNotes">รายละเอียด<textarea id="plannerTaskNotes" rows="3" maxlength="4000" placeholder="สิ่งที่ต้องทำหรือบริบทที่เลือกแชร์กับงานนี้"></textarea></label>
+              <div class="planner-form-grid planner-form-grid-3">
+                <label class="planner-field" for="plannerTaskPriority">ลำดับความสำคัญ<select id="plannerTaskPriority"><option value="1">1 · สูง</option><option value="2">2</option><option value="3" selected>3 · กลาง</option><option value="4">4</option><option value="5">5 · ต่ำ</option></select></label>
+                <label class="planner-field" for="plannerTaskDuration">เวลาประมาณ (นาที)<input id="plannerTaskDuration" type="number" min="1" max="1440" step="1" placeholder="ยังไม่ระบุ"></label>
+                <label class="planner-field" for="plannerTaskEnergy">พลังงานที่ใช้<select id="plannerTaskEnergy"><option value="1">1 · ต่ำ</option><option value="2">2</option><option value="3" selected>3 · กลาง</option><option value="4">4</option><option value="5">5 · สูง</option></select></label>
+              </div>
+              <div class="planner-form-grid planner-form-grid-2">
+                <label class="planner-field" for="plannerTaskDeadline">กำหนดส่ง (วันที่)<input id="plannerTaskDeadline" type="date"></label>
+                <label class="planner-field" for="plannerTaskCategory">หมวดหมู่ / project label<input id="plannerTaskCategory" maxlength="120" placeholder="เช่น งานลูกค้า"></label>
+              </div>
+              <label class="planner-field" for="plannerTaskProject">ป้ายกำกับเพิ่มเติม<input id="plannerTaskProject" maxlength="120" placeholder="เช่น deep-work"></label>
+              <label class="planner-field" for="plannerTaskChecklist">เช็กลิสต์<span class="planner-field-note">หนึ่งรายการต่อบรรทัด</span><textarea id="plannerTaskChecklist" rows="4" maxlength="2000" placeholder="รวบรวมข้อมูล\nตรวจทาน\nส่งให้ผู้เกี่ยวข้อง"></textarea></label>
+              <div class="planner-form-actions"><button class="primary-button" type="submit">บันทึกงาน</button><button class="secondary-button" id="plannerTaskReset" type="button">ล้างฟอร์ม</button></div>
+            </form>
+          </section>
+
+          <section class="planner-card planner-draft-card" aria-labelledby="plannerDraftTitle">
+            <header class="planner-card-head"><div><p class="kicker">TASK ASSISTANT / OLLAMA</p><h2 id="plannerDraftTitle">แตกงานเป็น draft</h2></div><span class="planner-badge" id="plannerDraftState">ยังไม่มี draft</span></header>
+            <p class="planner-card-copy">ส่งเฉพาะข้อความที่คุณเลือกให้โมเดลช่วยร่าง แล้วตรวจแก้ก่อนบันทึก งานจะไม่ถูกสร้างอัตโนมัติ</p>
+            <form id="plannerDraftForm" class="planner-form">
+              <label class="planner-field" for="plannerDraftPrompt">ข้อความตั้งต้น<textarea id="plannerDraftPrompt" rows="5" maxlength="4000" placeholder="ช่วยแตกงานจากข้อความนี้..."></textarea></label>
+              <label class="planner-field" for="plannerDraftModel">โมเดล Ollama<select id="plannerDraftModel"><option value="">เลือกโมเดลที่ติดตั้ง</option></select></label>
+              <button class="secondary-button" id="plannerDraftSubmit" data-planner-busy="draft" type="submit">สร้าง draft</button>
+            </form>
+            <form id="plannerDraftEditor" class="planner-form planner-draft-editor" hidden>
+              <label class="planner-field" for="plannerDraftTitleInput">ชื่อ draft<input id="plannerDraftTitleInput" maxlength="240"></label>
+              <label class="planner-field" for="plannerDraftNotesInput">รายละเอียด<textarea id="plannerDraftNotesInput" rows="3" maxlength="4000"></textarea></label>
+              <div class="planner-form-grid planner-form-grid-3">
+              <label class="planner-field" for="plannerDraftPriority">ลำดับความสำคัญ<select id="plannerDraftPriority"><option value="1">1 · สูง</option><option value="2">2</option><option value="3">3 · กลาง</option><option value="4">4</option><option value="5">5 · ต่ำ</option></select></label>
+                <label class="planner-field" for="plannerDraftDuration">นาที<input id="plannerDraftDuration" type="number" min="1" max="1440"></label>
+                <label class="planner-field" for="plannerDraftEnergy">พลังงาน<select id="plannerDraftEnergy"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></label>
+              </div>
+              <div class="planner-form-grid planner-form-grid-2">
+                <label class="planner-field" for="plannerDraftDeadline">กำหนดส่ง (วันที่)<input id="plannerDraftDeadline" type="date"></label>
+                <label class="planner-field" for="plannerDraftCategory">หมวดหมู่ / project label<input id="plannerDraftCategory" maxlength="120"></label>
+              </div>
+              <label class="planner-field" for="plannerDraftProject">ป้ายกำกับเพิ่มเติม<input id="plannerDraftProject" maxlength="120"></label>
+              <label class="planner-field" for="plannerDraftChecklist">เช็กลิสต์ draft<span class="planner-field-note">ตรวจและแก้ไขได้ก่อนบันทึก</span><textarea id="plannerDraftChecklist" rows="4" maxlength="2000"></textarea></label>
+              <div class="planner-form-actions"><button class="primary-button" type="submit">บันทึกเป็นงาน</button><button class="secondary-button" id="plannerDraftDiscard" type="button">ทิ้ง draft</button></div>
+            </form>
+            <p class="planner-footnote">โมเดลอาจสร้างข้อมูลที่ต้องตรวจสอบ งานนี้ไม่มีสิทธิ์เรียก tools, ไฟล์ หรือคำสั่งจากข้อความที่ร่าง</p>
+          </section>
+        </div>
+
+        <section class="planner-card planner-task-list-card" aria-labelledby="plannerTasksTitle">
+          <header class="planner-card-head planner-task-list-head"><div><p class="kicker">TASKS</p><h2 id="plannerTasksTitle">งานของคุณ</h2></div><span class="planner-badge" id="plannerTaskCount">0 งาน</span></header>
+          <div class="planner-task-filters">
+            <label class="planner-field planner-search-field" for="plannerTaskSearch">ค้นหา<input id="plannerTaskSearch" type="search" maxlength="160" autocomplete="off" placeholder="ชื่อ รายละเอียด หรือป้ายกำกับ"></label>
+            <label class="planner-field" for="plannerTaskStatusFilter">สถานะ<select id="plannerTaskStatusFilter"><option value="">ทุกสถานะ</option><option value="todo">ยังไม่เริ่ม</option><option value="in-progress">กำลังทำ</option><option value="completed">เสร็จแล้ว</option></select></label>
+            <label class="planner-check-row" for="plannerShowArchived"><input id="plannerShowArchived" type="checkbox"><span>แสดงงานเก็บถาวร</span></label>
+          </div>
+          <div id="plannerTaskList" class="planner-task-list" aria-live="polite"><div class="planner-empty">ยังไม่มีงาน · เริ่มจากแบบฟอร์มด้านบน</div></div>
+        </section>
+      </section>
+
+      <section class="planner-panel" id="plannerPanelFocus" role="tabpanel" aria-labelledby="plannerTabFocus" hidden>
+        <div class="planner-focus-layout">
+          <section class="planner-card planner-focus-card" aria-labelledby="plannerFocusTitle">
+            <header class="planner-card-head"><div><p class="kicker">FOCUS SESSION</p><h2 id="plannerFocusTitle">โฟกัสทีละช่วง</h2></div><span class="planner-badge" id="plannerFocusState">IDLE</span></header>
+            <div class="planner-focus-clock" aria-live="polite"><strong id="plannerFocusClock">25:00</strong><small id="plannerFocusClockNote">เวลาที่บันทึกได้</small></div>
+            <div class="planner-focus-progress"><span id="plannerFocusProgressBar"></span></div>
+            <div class="planner-form-grid planner-form-grid-2">
+              <label class="planner-field" for="plannerFocusTask">ผูกกับงาน<select id="plannerFocusTask"><option value="">ไม่ผูกกับงาน</option></select></label>
+              <label class="planner-field" for="plannerFocusTarget">เป้าหมาย (นาที)<input id="plannerFocusTarget" type="number" min="1" max="1440" value="25"></label>
+            </div>
+            <div class="planner-focus-actions"><button class="primary-button" id="plannerFocusStart" type="button">เริ่มโฟกัส</button><button class="secondary-button" id="plannerFocusPause" type="button" disabled>พัก</button><button class="secondary-button" id="plannerFocusResume" type="button" disabled>ต่อ</button><button class="secondary-button" id="plannerFocusFinish" type="button" disabled>จบช่วงนี้</button></div>
+            <p class="planner-focus-message" id="plannerFocusMessage" role="status">ยังไม่มี session ที่กำลังทำงาน</p>
+            <p class="planner-footnote">ตัวจับเวลานี้ไม่ทำเครื่องหมายงานเสร็จอัตโนมัติ · เบราว์เซอร์อาจลดความถี่เมื่ออยู่เบื้องหลัง จึงนับเฉพาะช่วงเวลาที่บันทึกได้</p>
+          </section>
+          <section class="planner-card planner-coaching-card" aria-labelledby="plannerCoachingTitle">
+            <header class="planner-card-head"><div><p class="kicker">GENTLE COACHING</p><h2 id="plannerCoachingTitle">การเตือนในแอป</h2></div><span class="planner-badge" id="plannerCoachingState">ปิดอยู่</span></header>
+            <label class="planner-check-row planner-coach-toggle" for="plannerCoachToggle"><input id="plannerCoachToggle" type="checkbox"><span><strong>เปิด idle coaching</strong><small>เตือนเมื่อไม่ได้ใช้งานหน้านี้เป็นเวลาหนึ่งช่วง</small></span></label>
+            <div class="planner-coach-message" id="plannerCoachMessage" hidden role="status"><p>ถ้าพร้อมแล้ว ลองเลือกงานหนึ่งงานแล้วเริ่มช่วงโฟกัสสั้น ๆ</p><button class="text-button" id="plannerCoachDismiss" type="button">ปิดการเตือนนี้</button></div>
+            <p class="planner-footnote">ปิดเป็นค่าเริ่มต้น · ไม่อ่านการใช้งานแอปอื่น ไม่อ่าน idle ของระบบปฏิบัติการ และไม่ส่งการแจ้งเตือนเมื่อปิด RWANG</p>
+          </section>
+        </div>
+        <section class="planner-card" aria-labelledby="plannerFocusHistoryTitle"><header class="planner-card-head"><div><p class="kicker">RECENT SESSIONS</p><h2 id="plannerFocusHistoryTitle">ช่วงโฟกัสล่าสุด</h2></div><span class="planner-badge" id="plannerFocusSessionCount">0 ช่วง</span></header><div id="plannerFocusHistory" class="planner-session-list" aria-live="polite"><div class="planner-empty">ยังไม่มีช่วงโฟกัสที่บันทึก</div></div></section>
+      </section>
+
+      <section class="planner-panel" id="plannerPanelInsights" role="tabpanel" aria-labelledby="plannerTabInsights" hidden>
+        <div class="planner-insights-toolbar">
+          <div><p class="kicker">INSIGHTS / PROVENANCE</p><h2>สถิติจากเวลาที่บันทึกจริง</h2></div>
+          <form id="plannerInsightsForm" class="planner-insights-controls"><label class="planner-field" for="plannerInsightsFrom">จาก<input id="plannerInsightsFrom" type="date"></label><label class="planner-field" for="plannerInsightsTo">ถึง<input id="plannerInsightsTo" type="date"></label><button class="secondary-button" type="submit">คำนวณใหม่</button></form>
+        </div>
+        <p class="planner-insights-meta" id="plannerInsightsMeta">ยังไม่มีผลคำนวณ</p>
+        <div class="planner-kpi-grid" aria-label="ตัวชี้วัด">
+          <div class="planner-kpi"><span>งานในวันที่เลือก</span><strong id="plannerInsightTasksToday">—</strong><small id="plannerInsightTasksTodayNote">รอข้อมูล</small></div>
+          <div class="planner-kpi"><span>งานที่เสร็จ</span><strong id="plannerInsightTasksCompleted">—</strong><small id="plannerInsightTasksCompletedNote">รอข้อมูล</small></div>
+          <div class="planner-kpi"><span>ความคืบหน้าแผน</span><strong id="plannerInsightPlanCompletion">—</strong><small id="plannerInsightPlanCompletionNote">ถ้ายังไม่มีงานในแผนจะแสดงเหตุผล</small></div>
+          <div class="planner-kpi"><span>เวลาโฟกัสที่ยืนยัน</span><strong id="plannerInsightFocusMinutes">—</strong><small id="plannerInsightFocusMinutesNote">นาที</small></div>
+          <div class="planner-kpi"><span>ความคืบหน้าเป้าหมาย</span><strong id="plannerInsightTargetProgress">—</strong><small id="plannerInsightTargetProgressNote">daily focus target</small></div>
+          <div class="planner-kpi"><span>โฟกัสต่อเนื่อง</span><strong id="plannerInsightStreak">—</strong><small id="plannerInsightStreakNote">วันที่มีข้อมูลครบตามกติกา</small></div>
+        </div>
+        <div class="planner-insight-grid">
+          <section class="planner-card" aria-labelledby="plannerHourlyTitle"><header class="planner-card-head"><div><p class="kicker">HOURLY RHYTHM</p><h2 id="plannerHourlyTitle">ช่วงเวลาที่บันทึกโฟกัส</h2></div><span class="planner-zone" id="plannerInsightsZone">—</span></header><div id="plannerHourlyChart" class="planner-chart" role="img" aria-label="กราฟเวลาโฟกัสรายชั่วโมง"><div class="planner-empty">ยังไม่มีข้อมูลรายชั่วโมง</div></div><div class="planner-table-wrap"><table class="planner-data-table"><caption>ข้อมูลเวลาโฟกัสรายชั่วโมง</caption><thead><tr><th scope="col">ช่วงเวลา</th><th scope="col">นาที</th><th scope="col">วันที่มีข้อมูล</th></tr></thead><tbody id="plannerHourlyTable"><tr><td colspan="3">ยังไม่มีข้อมูล</td></tr></tbody></table></div></section>
+          <section class="planner-card" aria-labelledby="plannerWeeklyTitle"><header class="planner-card-head"><div><p class="kicker">WEEKLY PROGRESS</p><h2 id="plannerWeeklyTitle">เทียบสัปดาห์</h2></div><span class="planner-badge" id="plannerWeeklyChange">—</span></header><div id="plannerWeeklyChart" class="planner-chart planner-weekly-chart"><div class="planner-empty">ยังไม่มีข้อมูลรายสัปดาห์</div></div><div class="planner-table-wrap"><table class="planner-data-table"><caption>ข้อมูลนาทีโฟกัสรายสัปดาห์</caption><thead><tr><th scope="col">สัปดาห์</th><th scope="col">นาทีโฟกัส</th></tr></thead><tbody id="plannerWeeklyTable"><tr><td colspan="2">ยังไม่มีข้อมูล</td></tr></tbody></table></div></section>
+        </div>
+        <section class="planner-card planner-provenance-card" aria-labelledby="plannerProvenanceTitle"><header class="planner-card-head"><div><p class="kicker">SOURCE & LIMITS</p><h2 id="plannerProvenanceTitle">ที่มาของตัวเลข</h2></div><span class="planner-badge" id="plannerInsightsSamples">0 ตัวอย่าง</span></header><p id="plannerInsightsProvenance">สถิติจะแสดงเมื่อมีข้อมูลจากงานในแผนและช่วงโฟกัสที่บันทึกได้</p><div class="planner-source-grid"><section aria-labelledby="plannerTaskSourcesTitle"><h3 id="plannerTaskSourcesTitle">งานที่ใช้คำนวณ</h3><div id="plannerInsightTaskSources" class="planner-source-list"><div class="planner-empty">ยังไม่มีรายการต้นทาง</div></div></section><section aria-labelledby="plannerSessionSourcesTitle"><h3 id="plannerSessionSourcesTitle">ช่วงโฟกัสที่ใช้คำนวณ</h3><div id="plannerSessionSources" class="planner-source-list"><div class="planner-empty">ยังไม่มีรายการต้นทาง</div></div></section></div><p class="planner-footnote">ตัวเลขที่ยังคำนวณไม่ได้จะแสดง “—” พร้อมเหตุผล · ไม่มีการเติมค่าจากภาพตัวอย่างหรือข้อมูลจำลอง</p></section>
+      </section>
     </section>
 
     <section class="view systems-view" id="systemsView" hidden>

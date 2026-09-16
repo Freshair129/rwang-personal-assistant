@@ -22,6 +22,8 @@
     "scripts/scan-annotations.ps1: no Get-ChildItem at all — directories are enumerated through [IO.Directory]::EnumerateDirectories so provider entries are never materialized before pruning",
     "scripts/scan-annotations.ps1: traversal state is constructed as Stack[string]]::new(), not New-Object, so it does not depend on cmdlet resolution",
     "scripts/scan-annotations.ps1: the root is resolved without Resolve-Path, so it is not resolved through the PowerShell provider",
-    "scripts/scan-annotations.ps1: terminates with an explicit exit 0 after flushing its output pipeline"
+    "scripts/scan-annotations.ps1: terminates with an explicit exit 0 after flushing its output pipeline",
+    "scripts/scan-annotations.ps1 and scan-annotations.sh: scan the repository's .mjs modules and test references",
+    "scripts/scan-annotations.ps1 and scan-annotations.sh: recognize the Persona PRD PER-xxx requirement identifiers"
   ]
 }

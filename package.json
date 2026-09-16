@@ -13,7 +13,7 @@
     "desktop:runtime": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/acquire-node-runtime.ps1 -ReplaceExisting",
     "desktop:stage": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/stage-desktop-runtime.ps1 -ReplaceExisting",
     "desktop:build": "pnpm desktop:stage && tauri build",
-    "check": "node --check server.mjs && node --check rwang.mjs && node --check document-intelligence.mjs && node --check spotlight.mjs && node --check remote.mjs && node --check desktop/runtime/entrypoint.mjs && node --check public/app.js && node --check public/desktop-diagnostics.js && node --check public/perception.js && node --check public/remote-client.js && node --check public/service-worker.js",
+    "check": "node --check server.mjs && node --check rwang.mjs && node --check planner.mjs && node --check document-intelligence.mjs && node --check spotlight.mjs && node --check remote.mjs && node --check desktop/runtime/entrypoint.mjs && node --check public/app.js && node --check public/desktop-diagnostics.js && node --check public/perception.js && node --check public/remote-client.js && node --check public/planner.js && node --check public/service-worker.js",
     "test:document-intelligence": "node tests/document-intelligence.mjs",
     "test:spotlight-security": "node tests/spotlight-security.mjs",
     "test:sidecar-runtime": "node tests/sidecar-runtime.mjs",
@@ -25,6 +25,7 @@
     "test:legacy-migration": "node tests/legacy-data-migration.mjs",
     "test:desktop-health": "node tests/desktop-health.mjs",
     "test:backend-hardening": "node tests/backend-hardening.mjs",
+    "test:planner": "node tests/planner-domain.mjs && node tests/planner.mjs",
     "test:desktop-contract": "node tests/desktop-package.mjs && node tests/model-selector-layout.mjs && node tests/legacy-data-migration.mjs && node tests/desktop-health.mjs && node tests/sidecar-runtime.mjs && node tests/tauri-contract.mjs && node tests/media-parity.mjs",
     "test:security": "node tests/document-intelligence.mjs && node tests/spotlight-security.mjs && node tests/security-smoke.mjs && node tests/remote-security.mjs && node tests/backend-hardening.mjs && node tests/persona-contract.mjs && node tests/persona-scenarios.mjs"
   },

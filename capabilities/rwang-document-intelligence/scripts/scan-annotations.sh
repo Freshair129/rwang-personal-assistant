@@ -21,7 +21,7 @@ FORMAT="${2:-json}"
 ROOT_PATH="$(cd "$ROOT_PATH" && pwd)"
 
 # File extensions to scan
-EXTENSIONS="ts,tsx,js,jsx,py,go,java,rs,cs"
+EXTENSIONS="ts,tsx,js,jsx,mjs,py,go,java,rs,cs,ps1"
 
 # Build the include flags for grep
 INCLUDE_FLAGS=""
@@ -55,10 +55,10 @@ LINE_START="^($BOM)?"
 # @tested with an arbitrary payload counted lines the
 # PowerShell scanner rejects as malformed, so the two halves disagreed on every test tree that
 # writes @tested <requirement-id> — a plausible-looking annotation this grammar does not define.
-TEST_REF_ERE="[A-Za-z0-9_./\\-]+\\.(ts|tsx|js|jsx|py|go|rs|java|cs|ps1)(::[A-Za-z0-9_-]+)?"
+TEST_REF_ERE="[A-Za-z0-9_./\\-]+\\.(ts|tsx|js|jsx|mjs|py|go|rs|java|cs|ps1)(::[A-Za-z0-9_-]+)?"
 
 NS_ID_ERE='[A-Z][A-Z0-9]{1,4}-[A-Z]{2,4}-[0-9]{3}'
-REQ_ID_ERE="($NS_ID_ERE|FR-[a-z][0-9]{5}|FEAT-[a-z][0-9]{2}|(FR|NFR|SDD|SEC|AI-AGT|AI-ETH|BR|AC|DR|IR)-[0-9]{3})"
+REQ_ID_ERE="($NS_ID_ERE|FR-[a-z][0-9]{5}|FEAT-[a-z][0-9]{2}|(FR|NFR|SDD|PER|SEC|AI-AGT|AI-ETH|BR|AC|DR|IR)-[0-9]{3})"
 
 # ERE has no lookbehind, so the left boundary is a real (captured) character. Without it, grep -o
 # scanning 'ZPP-FR-009' walks past the namespace and emits 'FR-009' — a different requirement,
@@ -120,7 +120,7 @@ else
 fi
 
 # Count files scanned
-FILE_COUNT=$(find "$ROOT_PATH" \( -name "*.ts" -o -name "*.tsx" -o -name "*.py" -o -name "*.go" -o -name "*.java" -o -name "*.rs" -o -name "*.cs" -o -name "*.mmd" -o -name "*.test.md" \) \
+FILE_COUNT=$(find "$ROOT_PATH" \( -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx" -o -name "*.mjs" -o -name "*.py" -o -name "*.go" -o -name "*.java" -o -name "*.rs" -o -name "*.cs" -o -name "*.ps1" -o -name "*.mmd" -o -name "*.test.md" \) \
     -not -path "*/node_modules/*" \
     -not -path "*/__pycache__/*" \
     -not -path "*/.venv/*" \

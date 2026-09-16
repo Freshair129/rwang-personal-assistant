@@ -1,9 +1,10 @@
-const CACHE = "rwang-shell-v9-spotlight";
+const CACHE = "rwang-shell-v10-planner";
 const SHELL = [
   "/",
   "/index.html",
   "/styles.css",
   "/app.js",
+  "/planner.js",
   "/perception.js",
   "/remote-client.js",
   "/icon.svg",

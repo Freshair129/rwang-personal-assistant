@@ -15,6 +15,7 @@ const releaseDocsPath = path.join(repositoryRoot, "docs", "desktop-release.md");
 const desktopDagPath = path.join(repositoryRoot, "docs", "desktop-dag.md");
 const readmePath = path.join(repositoryRoot, "README.md");
 const desktopWorkflowPath = path.join(repositoryRoot, ".github", "workflows", "desktop.yml");
+const packagePath = path.join(repositoryRoot, "package.json");
 const stageRoot = path.join(repositoryRoot, "desktop", "stage");
 const runtimeRoot = path.join(stageRoot, "rwang");
 
@@ -85,7 +86,7 @@ function assertOrdered(text, label, markers) {
 }
 
 async function staticContract() {
-  const [script, docs, releaseDocs, desktopDag, readme, acquireScript, nodeRuntimeSpecText, desktopWorkflow] = await Promise.all([
+  const [script, docs, releaseDocs, desktopDag, readme, acquireScript, nodeRuntimeSpecText, desktopWorkflow, packageText] = await Promise.all([
     readFile(scriptPath, "utf8"),
     readFile(docsPath, "utf8"),
     readFile(releaseDocsPath, "utf8"),
@@ -94,7 +95,12 @@ async function staticContract() {
     readFile(acquireScriptPath, "utf8"),
     readFile(nodeRuntimeSpecPath, "utf8"),
     readFile(desktopWorkflowPath, "utf8"),
+    readFile(packagePath, "utf8"),
   ]);
+  const packageJson = JSON.parse(packageText);
+  assert.match(packageJson.scripts.check, /planner\.mjs/);
+  assert.match(packageJson.scripts.check, /public\/planner\.js/);
+  assert.equal(packageJson.scripts["test:planner"], "node tests/planner-domain.mjs && node tests/planner.mjs");
 
   assert.match(script, /\$stageRoot\s*=.*desktop\\stage/);
   assert.match(script, /\$runtimeRoot\s*=.*Join-Path\s+\$stageRoot\s+"rwang"/);
@@ -134,6 +140,7 @@ async function staticContract() {
     "desktop/runtime/entrypoint.mjs",
     "server.mjs",
     "rwang.mjs",
+    "planner.mjs",
     "remote.mjs",
     "spotlight.mjs",
     "document-intelligence.mjs",
@@ -142,6 +149,7 @@ async function staticContract() {
     "runtime/node/node.exe",
     "runtime/node/LICENSE",
     "runtime/node/node-runtime.json",
+    "public/planner.js",
     "runtime-manifest.json",
   ]) {
     assert.match(script, new RegExp(relative.replaceAll("/", "[\\\\/]")), `missing staging contract for ${relative}`);
@@ -190,6 +198,7 @@ async function staticContract() {
     "pnpm check",
     ".\\scripts\\acquire-node-runtime.ps1 -ReplaceExisting",
     ".\\scripts\\stage-desktop-runtime.ps1 -ReplaceExisting",
+    "pnpm test:planner",
     "pnpm test:security",
     "pnpm test:desktop-package",
     "pnpm test:model-selector-layout",
