@@ -1,7 +1,7 @@
 ---
-version: "0.2.0b"
+version: "0.2.2b"
 created_at: "2026-09-17T02:11:00+07:00,RWANG,2ea8a343acedfaa052c6430e9891b09328a3b883"
-last_update: "2026-09-17T03:01:08+07:00,RWANG"
+last_update: "2026-09-17T04:57:55+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -40,6 +40,65 @@ omitted optional fields, then verify the persisted plan and restart it. Keep the
 null/omitted contract consistent; do not change tests to always supply task IDs.
 
 **Status:** FIXED; verification evidence is listed in the closure table.
+
+## G-18: Saving preferences rejects the default evening energy window
+
+**Symptom:** From the browser, changing the IANA time zone and saving the
+preferences fails with `energy window ต้องมี end มากกว่า start`, even though the
+default working hours are valid.
+
+**Evidence:** In the isolated UAT fixture, saving `Pacific/Kiritimati` with
+working hours `09:00–17:00` returned the error and left the persisted time zone
+at `Asia/Bangkok`. The browser payload builder maps the evening window to
+`17:00–17:00` when the workday ends at 17:00.
+
+**Root cause:** `savePreferences` derives the evening energy-window end from
+the working-hours end without preserving the existing evening window or
+enforcing a strictly later end. The default working-hours boundary therefore
+creates an invalid zero-length evening window.
+
+**Why the issue escaped detection:** Existing preference tests covered valid
+stored windows and timezone-aware metrics, but did not submit the browser's
+default `09:00–17:00` form payload after changing the time zone.
+
+**Proposed prevention:** Keep the evening window end after its fixed 17:00
+start; preserve the stored end when the working day ends at or before 17:00.
+Exercise the browser save flow with both the default boundary and a non-UTC
+zone, then verify the persisted preference and metrics zone.
+
+**Status:** FIXED; browser and packaged-sidecar UAT reruns are recorded in the
+closure table.
+
+## G-19: Cancelling a preview leaves stale review state on a new date
+
+**Symptom:** After a preview contains reasons, unscheduled tasks, or conflicts,
+changing the selected date clears the apply button and shows `ยังไม่มี preview`
+but leaves the previous date's review lists and success status visible.
+
+**Evidence:** In the isolated browser fixture, an automatic preview with a
+deadline conflict was created for 2026-09-17. Changing the date to 2026-09-18
+rendered no timeline and disabled apply, while the old reasons and
+`ช่วงเวลาที่วางเลย deadline` remained in the review regions.
+The source and staged browser reruns after the correction showed empty review
+fallbacks, the default `ยืนยันแผน` label, disabled Apply, and the neutral status
+`เปลี่ยนวันแล้ว · สร้าง preview ใหม่เพื่อดูผล`.
+
+**Root cause:** `renderPreview` returned immediately when `model.preview` was
+null, before clearing `plannerReasonsList`, `plannerUnscheduledList`, and
+`plannerConflictsList`. Date changes intentionally set the preview to null, so
+the old child nodes survived the rerender; the date handlers also left the last
+preview notification in `plannerStatus`.
+
+**Why the issue escaped detection:** Earlier checks verified stale apply was
+blocked and that apply cleared the preview, but did not inspect the review
+regions or status after cancelling by changing date or mode.
+
+**Proposed prevention:** Clear all review lists and reset the review controls
+whenever preview state is null; reset the status when a date change cancels the
+preview, then exercise preview → date change in both source and staged browsers.
+
+**Status:** FIXED; source and staged browser reruns are recorded in the gate
+report and closure table.
 
 ## G-02: Failed focus persistence leaks an uncommitted state
 
@@ -391,7 +450,7 @@ edit → apply and intentionally empty plans in the real browser.
 
 ## Verification closure
 
-All 17 findings below are fixed in the candidate identified in
+The 19 findings below are tracked in the candidate identified in
 [the gate report](../../docs/PRODUCTIVITY-GATE-REPORT.md). Their original
 symptoms and root causes are retained above as the audit trail.
 
@@ -409,6 +468,8 @@ symptoms and root causes are retained above as the audit trail.
 | G-15 | Domain narrow-range history/provenance and clipped-day regressions; root reviewed source selection and real metrics |
 | G-16 | Domain past/ongoing busy-block preservation regression |
 | G-17 | Browser replacement plan → Manual retains 10:00; locked busy block survives rebuild; remove all blocks → preview/apply/reload stays empty; stale banner clears after apply |
+| G-18 | Browser and packaged-sidecar save with `Pacific/Kiritimati` succeeds; persisted evening end remains `21:00` and insights use `GMT+14` |
+| G-19 | Source and staged browser: deadline-conflict preview on 2026-09-17 → date 2026-09-18 clears timeline, all review lists, status and Apply state; revision remains unchanged |
 
 The UI checks here do not claim native 200% zoom or full screen-reader operation.
 Those unrun acceptance checks remain explicitly listed in the gate report.
@@ -418,4 +479,6 @@ Those unrun acceptance checks remain explicitly listed in the gate report.
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
 | 0.2.0b | 2026-09-17 | beta | Record 17 independently identified findings, root causes, corrections and verification closure | UNCOMMITTED | RWANG |
+| 0.2.1b | 2026-09-17 | beta | Record timezone preference-save root cause found during UAT | UNCOMMITTED | RWANG |
+| 0.2.2b | 2026-09-17 | beta | Fix and verify stale preview review state after date-change cancellation | UNCOMMITTED | RWANG |
 | 0.1.0b | 2026-09-17 | under review | Record two root-reproduced gate failures and required regression paths | UNCOMMITTED | RWANG |

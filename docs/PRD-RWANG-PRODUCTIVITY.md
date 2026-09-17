@@ -1,9 +1,9 @@
 ---
-version: "0.1.2b"
-doc_version: "0.1.2"
+version: "0.1.5b"
+doc_version: "0.1.5"
 doc_status: "approved"
 created_at: "2026-09-17T01:42:54+07:00,RWANG,2ea8a343acedfaa052c6430e9891b09328a3b883"
-last_update: "2026-09-17T03:05:36+07:00,RWANG"
+last_update: "2026-09-17T04:57:55+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -24,9 +24,13 @@ attributes:
 ## 1. สถานะและขอบเขตการอนุมัติ
 
 เอกสารนี้สกัดฟีเจอร์จากภาพ OrbitAI 3 ภาพที่ผู้ใช้ส่งให้ แล้วเสนอวิธีเพิ่มเข้า RWANG
-สถานะ **APPROVED P1–P3 / IMPLEMENTED LOCALLY / LOCAL GATES PASS_WITH_LIMITATIONS**
+สถานะ **APPROVED P1–P3 / IMPLEMENTED LOCALLY / UAT INCOMPLETE**
 ผลทดสอบจริงและข้อจำกัดอยู่ใน [Productivity gate report](PRODUCTIVITY-GATE-REPORT.md)
-Full acceptance ยังรอตรวจ native 200% zoom และขอบเขตการเข้าถึงด้วย screen reader;
+Full acceptance ยังรอ functional cases ที่ไม่ครบ, packaged desktop/PWA และ accessibility
+ตามตาราง UAT coverage audit ในรายงาน; automated tests และ browser flows ที่ผ่านยังไม่ยืนยันทุกจุด
+UAT รอบต่อเนื่องยืนยัน What-if, ค้นหา, สองแท็บโฟกัส, positive insights, packaged sidecar
+และ preview cancellation แล้ว พร้อมปิด G-18 เรื่องบันทึก timezone และ G-19 เรื่อง review state
+ค้างหลังเปลี่ยนวัน; ช่องว่างที่เหลือยังคงเป็น partial UAT ตามรายงาน
 ผล local ไม่ใช่ clean-machine หรือ release acceptance และไม่เปลี่ยน PRD Persona ที่อนุมัติไว้
 
 งานเป็น **C-3 — Doc → Diagram → Contract/Test → Code** ความเสี่ยง **HIGH**
@@ -314,7 +318,7 @@ Schedules เดิมยังเป็น prompt reminder; ไม่แปล�
 
 | ก่อน | หลังข้อเสนอรอบนี้ |
 |---|---|
-| PRD `0.1.1b` approved | PRD `0.1.2b`; บันทึก implementation และผล local gate พร้อมข้อจำกัด |
+| PRD `0.1.4b` | PRD `0.1.5b`; บันทึก preview cancellation UAT และปิด G-19 เรื่อง stale review state |
 | ผลิตภัณฑ์ `0.5.0` | ยังคง `0.5.0`; เสนอ `0.6.0` หลัง P1–P3 ผ่านเกณฑ์ |
 | prompt reminders, chat และ tools เดิม | เพิ่ม PLAN สำหรับ task/draft, daily plan/What-if, focus/coaching และ insights |
 | ผลทดสอบยังไม่รัน | Domain/HTTP/security/desktop/source build และ browser flows ผ่านตามรายการใน gate report; full acceptance มีข้อจำกัดที่ระบุ |
@@ -323,6 +327,9 @@ Schedules เดิมยังเป็น prompt reminder; ไม่แปล�
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
+| 0.1.5b | 2026-09-17 | beta | บันทึก preview cancellation UAT และการแก้ stale review state G-19 โดยคงช่องว่างที่ยังไม่รัน | UNCOMMITTED | RWANG |
+| 0.1.4b | 2026-09-17 | beta | บันทึก UAT ต่อเนื่อง, packaged sidecar และการแก้ timezone preference-save G-18 โดยคงช่องว่างที่ยังไม่รัน | UNCOMMITTED | RWANG |
+| 0.1.3b | 2026-09-17 | beta | แยกผล developer verification จาก UAT และชี้ช่องว่าง functional/packaged-host/accessibility ที่ยังไม่รัน | UNCOMMITTED | RWANG |
 | 0.1.2b | 2026-09-17 | beta | บันทึก P1–P3 ที่ทำแล้ว ผลตรวจจริง ข้อจำกัด และแยก local gate จาก full/release acceptance | UNCOMMITTED | RWANG |
 | 0.1.1b | 2026-09-17 | beta | บันทึกการอนุมัติ P1–P3 และการมอบหมาย Luna max fleet โดย root ตรวจรับ | UNCOMMITTED | RWANG |
 | 0.1.0b | 2026-09-17 | candidate | สกัด 14 กลุ่มความต้องการจากภาพ, เทียบ code/docs, เสนอ architecture/data/API/metrics/tests และ P1–P3 | UNCOMMITTED | RWANG |

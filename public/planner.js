@@ -669,6 +669,10 @@ export function createPlannerController({ apiFetch, getStatus, getRwang, notify 
     if (!model.preview) {
       diffNode.append(emptyNode("สร้าง preview เพื่อดูงานที่ย้ายและเวลาที่เปลี่ยน"));
       $("#plannerApplyButton").disabled = true;
+      $("#plannerApplyButton").textContent = "ยืนยันแผน";
+      renderPreviewList($("#plannerReasonsList"), [], "ยังไม่มีเหตุผลจากกติกา");
+      renderPreviewList($("#plannerUnscheduledList"), [], "ไม่มีรายการ");
+      renderPreviewList($("#plannerConflictsList"), [], "ยังไม่มีข้อขัดแย้ง");
       return;
     }
     if (model.preview.stale || model.previewRevision !== model.revision) {
@@ -1089,9 +1093,16 @@ export function createPlannerController({ apiFetch, getStatus, getRwang, notify 
       return;
     }
     const existing = model.state?.preferences || {};
+    const existingEveningEnd = asArray(existing.energyWindows)
+      .find((window) => window?.period === "evening")?.end;
+    const defaultEveningEnd = parseTimeMinutes(end) > parseTimeMinutes("17:00")
+      ? end
+      : parseTimeMinutes(existingEveningEnd) > parseTimeMinutes("17:00")
+        ? existingEveningEnd
+        : "21:00";
     const energyWindows = PERIODS.map((period) => {
       const startByPeriod = period === "morning" ? start : period === "afternoon" ? "12:00" : "17:00";
-      const endByPeriod = period === "morning" ? "12:00" : period === "afternoon" ? "17:00" : end;
+      const endByPeriod = period === "morning" ? "12:00" : period === "afternoon" ? "17:00" : defaultEveningEnd;
       const target = $(`#plannerEnergy${period[0].toUpperCase()}${period.slice(1)}`);
       return { period, start: startByPeriod, end: endByPeriod, level: clamp(target?.value, 1, 5, 3) };
     });
@@ -1574,8 +1585,8 @@ export function createPlannerController({ apiFetch, getStatus, getRwang, notify 
     $("#plannerTabs").addEventListener("keydown", handleTabKey);
     $("#plannerPrevDate").addEventListener("click", () => changeDate(-1));
     $("#plannerNextDate").addEventListener("click", () => changeDate(1));
-    $("#plannerTodayButton").addEventListener("click", () => { model.dateTouched = true; model.date = todayInZone(currentTimeZone()); model.manualBlocks = []; model.manualBlocksActive = false; model.preview = null; renderAll(); });
-    $("#plannerDateInput").addEventListener("change", (event) => { if (DATE_RE.test(event.currentTarget.value)) { model.dateTouched = true; model.date = event.currentTarget.value; model.manualBlocks = []; model.manualBlocksActive = false; model.preview = null; model.previewRevision = null; renderAll(); } });
+    $("#plannerTodayButton").addEventListener("click", () => { model.dateTouched = true; model.date = todayInZone(currentTimeZone()); resetPreviewForDateChange(); });
+    $("#plannerDateInput").addEventListener("change", (event) => { if (DATE_RE.test(event.currentTarget.value)) { model.dateTouched = true; model.date = event.currentTarget.value; resetPreviewForDateChange(); } });
     $("#plannerModeSelect").addEventListener("change", (event) => { if (event.currentTarget.value === "what-if") $("#plannerWhatIfWarning").hidden = false; else $("#plannerWhatIfWarning").hidden = true; });
     $("#plannerPreviewButton").addEventListener("click", () => void createPreview());
     $("#plannerRebuildButton").addEventListener("click", () => { $("#plannerModeSelect").value = "auto"; void createPreview("auto"); });
@@ -1733,11 +1744,17 @@ export function createPlannerController({ apiFetch, getStatus, getRwang, notify 
   function changeDate(amount) {
     model.dateTouched = true;
     model.date = shiftDate(model.date || todayInZone(currentTimeZone()), amount, currentTimeZone());
+    resetPreviewForDateChange();
+  }
+
+  function resetPreviewForDateChange() {
     model.manualBlocks = [];
     model.manualBlocksActive = false;
     model.preview = null;
     model.previewRevision = null;
+    model.archivePending = null;
     renderAll();
+    setStatus("เปลี่ยนวันแล้ว · สร้าง preview ใหม่เพื่อดูผล");
   }
 
   function renderAll() {
