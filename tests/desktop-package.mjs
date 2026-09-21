@@ -140,6 +140,7 @@ async function staticContract() {
     "desktop/runtime/entrypoint.mjs",
     "server.mjs",
     "rwang.mjs",
+    "secret-store.mjs",
     "planner.mjs",
     "remote.mjs",
     "spotlight.mjs",

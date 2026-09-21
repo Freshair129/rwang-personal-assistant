@@ -762,6 +762,8 @@
     <div class="settings-layout">
       <nav class="settings-nav" aria-label="หมวดการตั้งค่า">
         <button class="active" type="button" data-settings-tab="assistant">Assistant</button>
+        <button type="button" data-settings-tab="text-provider">PRP Text</button>
+        <button type="button" data-settings-tab="voice-worker">Lalin Voice</button>
         <button type="button" data-settings-tab="perception">Perception</button>
         <button type="button" data-settings-tab="home">Home Assistant</button>
         <button type="button" data-settings-tab="mcp">MCP Agents</button>
@@ -781,6 +783,37 @@
             <button class="primary-button" type="submit">บันทึก Assistant</button>
           </form>
           <div class="security-note warning"><strong>Speech privacy</strong><p>RWANG จะเลือก on-device recognition เมื่อ browser และ language pack รองรับ มิฉะนั้น browser อาจส่งเสียงไปยังบริการของผู้ผลิต ระบบจะแจ้งโหมดที่ใช้ก่อนเริ่มฟัง</p></div>
+        </section>
+
+        <section class="settings-tab" data-tab-panel="text-provider">
+          <div class="settings-title"><span>02</span><div><h3>PRP text provider</h3><p>ส่งข้อความไปยัง Private Runtime Platform ด้วย PRP-scoped client key</p></div></div>
+          <form id="prpTextSettings" class="settings-form">
+            <label>Text provider<select id="textProviderInput"><option value="ollama">Ollama · local default</option><option value="prp">PRP · Private Runtime Platform</option></select></label>
+            <label class="wide">PRP endpoint<input id="textBaseUrlInput" type="url" autocomplete="off" spellcheck="false" placeholder="https://prp.example.invalid"></label>
+            <label class="wide">PRP model<input id="textModelInput" autocomplete="off" spellcheck="false" placeholder="เช่น qwen3-30b-a3b"></label>
+            <label class="wide">PRP client API key<input id="prpTextApiKeyInput" type="password" autocomplete="new-password" spellcheck="false" placeholder="PRP-scoped client key เท่านั้น"></label>
+            <div class="connection-card wide" role="status" aria-live="polite">
+              <strong id="prpTextCredentialStatus">NOT REQUIRED</strong>
+              <p id="prpTextCredentialDetail">ตอนนี้ใช้ Ollama สำหรับ text</p>
+            </div>
+            <button class="primary-button" type="submit">บันทึก PRP text</button>
+            <button class="secondary-button" id="clearPrpTextApiKeyButton" type="button">ล้าง PRP API key</button>
+          </form>
+          <div class="security-note"><strong>Separate credential boundary</strong><p>PRP key ใช้กับ text เท่านั้น เก็บด้วย Windows user-scoped protection และไม่แสดงกลับใน browser, log, URL หรือไฟล์ config · เสียงยังส่งเข้า Lalin large-v3-turbo โดยตรง</p></div>
+        </section>
+
+        <section class="settings-tab" data-tab-panel="voice-worker">
+          <div class="settings-title"><span>03</span><div><h3>Lalin local voice</h3><p>เชื่อมต่อ voice worker ใน <code>F:\lalin</code> ด้วย credential ฝั่ง server</p></div></div>
+          <form id="lalinVoiceWorkerForm" class="settings-form">
+            <label class="wide">Lalin worker API key<input id="lalinVoiceApiKeyInput" type="password" autocomplete="new-password" spellcheck="false" placeholder="ใส่ bearer token ของ voice worker"></label>
+            <div class="connection-card wide" role="status" aria-live="polite">
+              <strong id="lalinVoiceCredentialStatus">NOT CONFIGURED</strong>
+              <p id="lalinVoiceCredentialDetail">ยังไม่ได้ตั้งค่า credential</p>
+            </div>
+            <button class="primary-button" type="submit">บันทึก API key</button>
+            <button class="secondary-button" id="clearLalinVoiceApiKeyButton" type="button">ล้าง API key</button>
+          </form>
+          <div class="security-note"><strong>Local-only credential</strong><p>ค่า key จะถูกส่งให้ RWANG server เท่านั้น เก็บด้วย Windows user-scoped protection และไม่แสดงกลับใน browser, log, URL หรือไฟล์ config</p></div>
         </section>
 
         <section class="settings-tab" data-tab-panel="perception">

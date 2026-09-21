@@ -342,6 +342,7 @@ function Assert-RequiredRuntime([string]$Root) {
         "entrypoint.mjs",
         "server.mjs",
         "rwang.mjs",
+        "secret-store.mjs",
         "planner.mjs",
         "remote.mjs",
         "spotlight.mjs",
@@ -462,6 +463,7 @@ try {
         "desktop/runtime/entrypoint.mjs" = "entrypoint.mjs"
         "server.mjs" = "server.mjs"
         "rwang.mjs" = "rwang.mjs"
+        "secret-store.mjs" = "secret-store.mjs"
         "planner.mjs" = "planner.mjs"
         "remote.mjs" = "remote.mjs"
         "spotlight.mjs" = "spotlight.mjs"

@@ -23,11 +23,13 @@
     "test:model-selector-layout": "node tests/model-selector-layout.mjs",
     "test:persona": "node tests/persona-contract.mjs && node tests/persona-scenarios.mjs",
     "test:legacy-migration": "node tests/legacy-data-migration.mjs",
+    "test:lalin-voice-config": "node tests/lalin-voice-config.mjs",
+    "test:text-stt-routing": "node tests/text-stt-routing.mjs",
     "test:desktop-health": "node tests/desktop-health.mjs",
     "test:backend-hardening": "node tests/backend-hardening.mjs",
     "test:planner": "node tests/planner-domain.mjs && node tests/planner.mjs",
     "test:desktop-contract": "node tests/desktop-package.mjs && node tests/model-selector-layout.mjs && node tests/legacy-data-migration.mjs && node tests/desktop-health.mjs && node tests/sidecar-runtime.mjs && node tests/tauri-contract.mjs && node tests/media-parity.mjs",
-    "test:security": "node tests/document-intelligence.mjs && node tests/spotlight-security.mjs && node tests/security-smoke.mjs && node tests/remote-security.mjs && node tests/backend-hardening.mjs && node tests/persona-contract.mjs && node tests/persona-scenarios.mjs"
+    "test:security": "node tests/document-intelligence.mjs && node tests/spotlight-security.mjs && node tests/security-smoke.mjs && node tests/remote-security.mjs && node tests/backend-hardening.mjs && node tests/lalin-voice-config.mjs && node tests/text-stt-routing.mjs && node tests/persona-contract.mjs && node tests/persona-scenarios.mjs"
   },
   "engines": {
     "node": ">=22"

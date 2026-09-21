@@ -10,6 +10,7 @@ import { ToolLoopAgent, detectToolDrift, fingerprintTools, isStepCount, tool } f
 import { z } from "zod";
 import { createDocumentIntelligence } from "./document-intelligence.mjs";
 import { createPlanner } from "./planner.mjs";
+import { createSecretStore } from "./secret-store.mjs";
 
 const ASSISTANT_NAME = "RWANG";
 const DEFAULT_WAKE_WORD = "อาหวัง";
@@ -17,6 +18,26 @@ const APPROVAL_TTL_MS = 10 * 60 * 1000;
 const RESULT_TTL_MS = 30 * 60 * 1000;
 const PAIRING_TTL_MS = 3 * 60 * 1000;
 const DEVICE_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const LALIN_VOICE_DEFAULT_URL = "http://127.0.0.1:8790";
+const LALIN_VOICE_DEFAULT_PROFILE = "asr-th-en-01";
+const LALIN_VOICE_DEFAULT_FALLBACK_PROFILE = "";
+const LALIN_VOICE_VERIFY_TIMEOUT_MS = 3000;
+const LALIN_VOICE_TRANSCRIBE_TIMEOUT_MS = 5000;
+const LALIN_VOICE_TRANSCRIBE_MAX_WAIT_MS = 120000;
+const LALIN_VOICE_TOKEN_MIN_LENGTH = 16;
+const LALIN_VOICE_TOKEN_MAX_LENGTH = 4096;
+const PRP_TEXT_DEFAULT_PROVIDER = "ollama";
+const PRP_TEXT_TOKEN_MIN_LENGTH = 16;
+const PRP_TEXT_TOKEN_MAX_LENGTH = 4096;
+const PRP_TEXT_VERIFY_TIMEOUT_MS = 5000;
+const LALIN_SUPPORTED_AUDIO_TYPES = new Set([
+  "audio/wav",
+  "audio/x-wav",
+  "audio/mpeg",
+  "audio/ogg",
+  "audio/flac",
+  "audio/mp4",
+]);
 const MAX_PAIRED_DEVICES = 12;
 const PAIRING_CODE_RE = /^\d{8}$/;
 const DEVICE_TOKEN_RE = /^rd_[A-Za-z0-9_-]{43}$/;
@@ -89,6 +110,10 @@ function timeoutSignal(ms) {
   return AbortSignal.timeout(ms);
 }
 
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function isLoopbackAddress(address = "") {
   return address === "::1" || address === "127.0.0.1" || address.startsWith("::ffff:127.");
 }
@@ -134,12 +159,116 @@ function normalizeUrl(value) {
   return url.toString();
 }
 
+function normalizeLalinVoiceWorkerUrl(value) {
+  const supplied = String(value || LALIN_VOICE_DEFAULT_URL).trim();
+  let url;
+  try {
+    url = new URL(supplied);
+  } catch {
+    const error = new Error("Lalin voice worker URL ไม่ถูกต้อง");
+    error.code = "INVALID_WORKER_URL";
+    throw error;
+  }
+  if (!["http:", "https:"].includes(url.protocol) || !isLoopbackHost(url.hostname)) {
+    const error = new Error("Lalin voice worker ต้องอยู่บน loopback เท่านั้น");
+    error.code = "INVALID_WORKER_URL";
+    throw error;
+  }
+  if (url.username || url.password || url.search || url.hash) {
+    const error = new Error("Lalin voice worker URL ห้ามมี credential หรือ query");
+    error.code = "INVALID_WORKER_URL";
+    throw error;
+  }
+  url.pathname = url.pathname.replace(/\/+$/g, "");
+  return url.toString().replace(/\/$/, "");
+}
+
+function validateLalinVoiceCredential(value) {
+  const credential = String(value ?? "");
+  const bytes = Buffer.byteLength(credential, "utf8");
+  if (
+    credential.length < LALIN_VOICE_TOKEN_MIN_LENGTH
+    || bytes > LALIN_VOICE_TOKEN_MAX_LENGTH
+    || credential !== credential.trim()
+    || /[\u0000-\u001f\u007f]/u.test(credential)
+  ) {
+    const error = new Error("API key ไม่ถูกต้อง");
+    error.code = "INVALID_CREDENTIAL";
+    throw error;
+  }
+  return credential;
+}
+
+function normalizeLalinVoiceMode(value) {
+  const mode = String(value || "auto").trim().toLowerCase();
+  return ["auto", "local", "browser"].includes(mode) ? mode : "auto";
+}
+
+function normalizeTextProvider(value) {
+  const provider = String(value || PRP_TEXT_DEFAULT_PROVIDER).trim().toLowerCase();
+  return ["ollama", "prp"].includes(provider) ? provider : PRP_TEXT_DEFAULT_PROVIDER;
+}
+
 function normalizeBaseUrl(value) {
   const url = new URL(normalizeUrl(value));
   url.search = "";
   url.hash = "";
   const pathname = url.pathname.replace(/\/+$/, "");
   return `${url.protocol}//${url.host}${pathname}`;
+}
+
+function normalizePrpTextBaseUrl(value) {
+  const supplied = cleanText(value, 1200);
+  if (!supplied) return "";
+  let url;
+  try {
+    const raw = new URL(supplied);
+    if (raw.username || raw.password || raw.search || raw.hash) throw new Error("unsafe endpoint URL");
+    url = new URL(normalizeBaseUrl(supplied));
+  } catch {
+    const error = new Error("PRP text endpoint ไม่ถูกต้อง");
+    error.code = "INVALID_PRP_TEXT_URL";
+    throw error;
+  }
+  if (url.protocol !== "https:" && !isLoopbackHost(url.hostname)) {
+    const error = new Error("PRP text endpoint ที่ไม่ใช่ loopback ต้องใช้ HTTPS");
+    error.code = "INVALID_PRP_TEXT_URL";
+    throw error;
+  }
+  return url.toString().replace(/\/$/, "");
+}
+
+function prpTextV1BaseUrl(value) {
+  const base = normalizePrpTextBaseUrl(value);
+  if (!base) return "";
+  return /\/v1$/i.test(base) ? base : `${base}/v1`;
+}
+
+function normalizeLalinLanguage(value, fallback = "th") {
+  const language = String(value || "").trim().toLowerCase();
+  if (language === "th" || language.startsWith("th-")) return "th";
+  if (language === "en" || language.startsWith("en-")) return "en";
+  return fallback;
+}
+
+function normalizeAudioMimeType(value) {
+  return String(value || "").split(";", 1)[0].trim().toLowerCase();
+}
+
+function validatePrpTextCredential(value) {
+  const credential = String(value ?? "");
+  const bytes = Buffer.byteLength(credential, "utf8");
+  if (
+    credential.length < PRP_TEXT_TOKEN_MIN_LENGTH
+    || bytes > PRP_TEXT_TOKEN_MAX_LENGTH
+    || credential !== credential.trim()
+    || /[\u0000-\u001f\u007f]/u.test(credential)
+  ) {
+    const error = new Error("PRP text API key ไม่ถูกต้อง");
+    error.code = "INVALID_CREDENTIAL";
+    throw error;
+  }
+  return credential;
 }
 
 function sanitizeStoredBaseUrl(value) {
@@ -150,6 +279,14 @@ function sanitizeStoredBaseUrl(value) {
     // those values on load so credentials/query strings cannot reappear in a
     // snapshot, while preserving a valid origin and optional base path.
     return normalizeBaseUrl(supplied);
+  } catch {
+    return "";
+  }
+}
+
+function sanitizeStoredPrpTextBaseUrl(value) {
+  try {
+    return normalizePrpTextBaseUrl(value);
   } catch {
     return "";
   }
@@ -227,6 +364,9 @@ function defaultConfig() {
       language: "th-TH",
       defaultModel: "",
       autoSpeak: true,
+      textProvider: PRP_TEXT_DEFAULT_PROVIDER,
+      textBaseUrl: "",
+      textModel: "",
     },
     access: {
       token: randomBytes(24).toString("base64url"),
@@ -264,6 +404,9 @@ function normalizeConfig(input) {
       language: /^[a-z]{2,3}(?:-[A-Z]{2})?$/.test(assistant.language || "") ? assistant.language : "th-TH",
       defaultModel: cleanText(assistant.defaultModel, 500),
       autoSpeak: assistant.autoSpeak !== false,
+      textProvider: normalizeTextProvider(assistant.textProvider),
+      textBaseUrl: sanitizeStoredPrpTextBaseUrl(assistant.textBaseUrl),
+      textModel: cleanText(assistant.textModel, 500),
     },
     access: {
       token: cleanText(input?.access?.token, 200) || base.access.token,
@@ -541,6 +684,24 @@ export async function createRwangCore({
   const fingerprintTempFile = path.join(dataRoot, ".rwang-tool-fingerprints.tmp");
   let config = normalizeConfig(await readJson(configFile, defaultConfig()));
   let fingerprints = await readJson(fingerprintFile, {});
+  const lalinVoice = {
+    url: normalizeLalinVoiceWorkerUrl(process.env.RWANG_LALIN_VOICE_WORKER_URL),
+    profile: cleanText(process.env.RWANG_LALIN_VOICE_PROFILE, 120) || LALIN_VOICE_DEFAULT_PROFILE,
+    fallbackProfile: cleanText(process.env.RWANG_LALIN_VOICE_FALLBACK_PROFILE, 120) || LALIN_VOICE_DEFAULT_FALLBACK_PROFILE,
+    mode: normalizeLalinVoiceMode(process.env.RWANG_VOICE_MODE),
+  };
+  const lalinVoiceSecretStore = createSecretStore({ dataDir: dataRoot, name: "lalin-voice-worker" });
+  const prpTextSecretStore = createSecretStore({ dataDir: dataRoot, name: "prp-text-client" });
+  let lalinVoiceVerification = {
+    state: "unverified",
+    code: null,
+    checkedAt: null,
+  };
+  let prpTextVerification = {
+    state: "unverified",
+    code: null,
+    checkedAt: null,
+  };
   const documentIntelligence = createDocumentIntelligence({
     rootDir: workspaceRoot,
     ...(capabilityRoot ? { capabilityDir: capabilityRoot } : {}),
@@ -656,6 +817,470 @@ export async function createRwangCore({
     await fingerprintWriteChain;
   }
 
+  function environmentCredential(name, validator) {
+    const supplied = String(process.env[name] ?? "");
+    if (!supplied) return { value: "", invalid: false };
+    try {
+      return { value: validator(supplied), invalid: false };
+    } catch {
+      return { value: "", invalid: true };
+    }
+  }
+
+  async function resolveStoredCredential(store, environment) {
+    let hasDesktopCredential = false;
+    try {
+      hasDesktopCredential = await store.has();
+    } catch (error) {
+      return { source: "desktop", value: "", invalid: false, error };
+    }
+    if (hasDesktopCredential) {
+      try {
+        const value = await store.get();
+        return { source: "desktop", value: value || "", invalid: false, error: null };
+      } catch (error) {
+        return { source: "desktop", value: "", invalid: false, error };
+      }
+    }
+    return {
+      source: environment.value || environment.invalid ? "environment" : "not configured",
+      value: environment.value,
+      invalid: environment.invalid,
+      error: null,
+    };
+  }
+
+  function credentialStatus(info, verification, store) {
+    const configured = info.source !== "not configured" && !info.error && !info.invalid;
+    const state = info.error
+      ? "store_error"
+      : info.invalid
+        ? "invalid"
+        : !configured
+          ? "not_configured"
+          : verification.state;
+    return {
+      configured,
+      source: info.source,
+      verification: state,
+      masked: configured ? "••••••••" : "",
+      checkedAt: verification.checkedAt,
+      backend: info.source === "desktop" ? store.backend : null,
+      ...((verification.code || info.error?.code) ? { code: verification.code || info.error.code } : {}),
+    };
+  }
+
+  async function lalinVoiceCredentialInfo() {
+    return resolveStoredCredential(
+      lalinVoiceSecretStore,
+      environmentCredential("RWANG_LALIN_VOICE_WORKER_TOKEN", validateLalinVoiceCredential),
+    );
+  }
+
+  async function lalinVoiceCredentialStatus() {
+    return credentialStatus(await lalinVoiceCredentialInfo(), lalinVoiceVerification, lalinVoiceSecretStore);
+  }
+
+  function textProviderConfiguration() {
+    const provider = normalizeTextProvider(process.env.RWANG_TEXT_PROVIDER || config.assistant.textProvider);
+    const suppliedBaseUrl = config.assistant.textBaseUrl || process.env.RWANG_PRP_TEXT_BASE_URL || "";
+    let baseUrl = "";
+    let baseUrlError = null;
+    if (suppliedBaseUrl) {
+      try {
+        baseUrl = normalizePrpTextBaseUrl(suppliedBaseUrl);
+      } catch (error) {
+        baseUrlError = error;
+      }
+    }
+    return {
+      provider,
+      baseUrl,
+      baseUrlError,
+      model: cleanText(config.assistant.textModel || process.env.RWANG_PRP_TEXT_MODEL, 500),
+    };
+  }
+
+  async function prpTextCredentialInfo() {
+    return resolveStoredCredential(
+      prpTextSecretStore,
+      environmentCredential("RWANG_PRP_TEXT_CLIENT_KEY", validatePrpTextCredential),
+    );
+  }
+
+  async function prpTextCredentialStatus() {
+    const configuration = textProviderConfiguration();
+    const info = await prpTextCredentialInfo();
+    const status = credentialStatus(info, prpTextVerification, prpTextSecretStore);
+    if (configuration.provider !== "prp") {
+      status.verification = "not_required";
+      delete status.code;
+    }
+    if (configuration.baseUrlError && configuration.provider === "prp") {
+      status.verification = "invalid";
+      status.code = configuration.baseUrlError.code || "INVALID_PRP_TEXT_URL";
+    }
+    return status;
+  }
+
+  async function readLalinVoiceResponse(response) {
+    const raw = await response.text();
+    if (raw.length > 64 * 1024) throw new Error("worker response too large");
+    if (!raw) return {};
+    try {
+      return JSON.parse(raw);
+    } catch {
+      throw new Error("worker response is not JSON");
+    }
+  }
+
+  async function requestLalinVoice(pathname, token, { method = "GET", body: requestBody, timeoutMs = LALIN_VOICE_VERIFY_TIMEOUT_MS } = {}) {
+    const response = await fetch(`${lalinVoice.url}${pathname}`, {
+      method,
+      headers: {
+        accept: "application/json",
+        authorization: `Bearer ${token}`,
+      },
+      ...(requestBody === undefined ? {} : { body: requestBody }),
+      signal: timeoutSignal(timeoutMs),
+    });
+    const parsedBody = await readLalinVoiceResponse(response);
+    return { response, body: parsedBody };
+  }
+
+  async function inspectLalinVoiceCredential(candidate) {
+    const token = validateLalinVoiceCredential(candidate);
+    try {
+      const described = await requestLalinVoice("/worker/v1/describe", token);
+      if ([401, 403].includes(described.response.status)) {
+        return { state: "invalid", code: "INVALID_CREDENTIAL" };
+      }
+      if (!described.response.ok) return { state: "unverified", code: "WORKER_UNAVAILABLE" };
+      const profile = Array.isArray(described.body?.profiles)
+        ? described.body.profiles.find((entry) => entry?.profile_id === lalinVoice.profile)
+        : null;
+      if (
+        !profile
+        || profile.engine !== "faster-whisper"
+        || !String(profile.profile_revision || "").toLowerCase().includes("large-v3-turbo")
+        || described.body?.engine?.labeled_stub !== false
+      ) {
+        return { state: "invalid", code: "PROFILE_MISMATCH" };
+      }
+
+      const readiness = await requestLalinVoice("/worker/v1/readiness", token);
+      if ([401, 403].includes(readiness.response.status)) {
+        return { state: "invalid", code: "INVALID_CREDENTIAL" };
+      }
+      if (!readiness.response.ok) return { state: "unverified", code: "WORKER_UNAVAILABLE" };
+      const readyProfile = Array.isArray(readiness.body?.profiles)
+        ? readiness.body.profiles.find((entry) => entry?.profile_id === lalinVoice.profile)
+        : null;
+      if (readiness.body?.ready === true && readyProfile?.ready === true) {
+        return { state: "verified", code: null, token, described: described.body, readiness: readiness.body, profile, readyProfile };
+      }
+      return { state: "unverified", code: "WORKER_UNAVAILABLE", token, described: described.body, readiness: readiness.body, profile, readyProfile };
+    } catch {
+      return { state: "unverified", code: "WORKER_UNAVAILABLE" };
+    }
+  }
+
+  async function verifyLalinVoiceCredential(candidate) {
+    const inspected = await inspectLalinVoiceCredential(candidate);
+    const { token, described, readiness, profile, readyProfile, ...verification } = inspected;
+    return verification;
+  }
+
+  async function setLalinVoiceCredential(value) {
+    const candidate = validateLalinVoiceCredential(value);
+    const verification = await verifyLalinVoiceCredential(candidate);
+    if (verification.state === "invalid") {
+      const error = new Error("API key ใช้กับ Lalin voice worker ไม่ได้");
+      error.code = verification.code || "INVALID_CREDENTIAL";
+      throw error;
+    }
+    await lalinVoiceSecretStore.set(candidate);
+    lalinVoiceVerification = { ...verification, checkedAt: now() };
+    audit("info", `อัปเดต Lalin voice worker credential (${verification.state})`);
+    return lalinVoiceCredentialStatus();
+  }
+
+  async function clearLalinVoiceCredential() {
+    await lalinVoiceSecretStore.clear();
+    lalinVoiceVerification = { state: "unverified", code: null, checkedAt: null };
+    audit("info", "ล้าง Lalin voice worker credential แล้ว");
+    return lalinVoiceCredentialStatus();
+  }
+
+  async function requestPrpText(pathname, token, { method = "GET", body } = {}) {
+    const configuration = textProviderConfiguration();
+    if (configuration.baseUrlError) throw configuration.baseUrlError;
+    if (!configuration.baseUrl) {
+      const error = new Error("ยังไม่ได้ตั้งค่า PRP text endpoint");
+      error.code = "PRP_TEXT_ENDPOINT_NOT_CONFIGURED";
+      throw error;
+    }
+    const response = await fetch(`${prpTextV1BaseUrl(configuration.baseUrl)}${pathname}`, {
+      method,
+      headers: {
+        accept: "application/json",
+        authorization: `Bearer ${token}`,
+        ...(body === undefined ? {} : { "content-type": "application/json" }),
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      signal: timeoutSignal(PRP_TEXT_VERIFY_TIMEOUT_MS),
+    });
+    const raw = await response.text();
+    if (raw.length > 64 * 1024) throw new Error("PRP text response too large");
+    let parsed = {};
+    if (raw) {
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        throw new Error("PRP text response is not JSON");
+      }
+    }
+    return { response, body: parsed };
+  }
+
+  async function verifyPrpTextCredential(candidate) {
+    const token = validatePrpTextCredential(candidate);
+    const configuration = textProviderConfiguration();
+    if (configuration.baseUrlError) return { state: "invalid", code: configuration.baseUrlError.code };
+    if (!configuration.baseUrl) return { state: "unverified", code: "PRP_TEXT_ENDPOINT_NOT_CONFIGURED" };
+    try {
+      const models = await requestPrpText("/models", token);
+      if ([401, 403].includes(models.response.status)) return { state: "invalid", code: "INVALID_CREDENTIAL" };
+      if (!models.response.ok) return { state: "unverified", code: "PRP_TEXT_UNAVAILABLE" };
+      const ids = Array.isArray(models.body?.data)
+        ? models.body.data.map((entry) => cleanText(entry?.id, 500)).filter(Boolean)
+        : [];
+      if (!ids.length) return { state: "unverified", code: "PRP_TEXT_NO_MODELS" };
+      if (configuration.model && !ids.includes(configuration.model)) {
+        return { state: "invalid", code: "PRP_TEXT_MODEL_NOT_FOUND" };
+      }
+      return { state: "verified", code: null };
+    } catch {
+      return { state: "unverified", code: "PRP_TEXT_UNAVAILABLE" };
+    }
+  }
+
+  async function setPrpTextCredential(value) {
+    const candidate = validatePrpTextCredential(value);
+    const verification = await verifyPrpTextCredential(candidate);
+    if (verification.state === "invalid") {
+      const error = new Error("API key ใช้กับ PRP text endpoint ไม่ได้");
+      error.code = verification.code || "INVALID_CREDENTIAL";
+      throw error;
+    }
+    await prpTextSecretStore.set(candidate);
+    prpTextVerification = { ...verification, checkedAt: now() };
+    audit("info", `อัปเดต PRP text credential (${verification.state})`);
+    return prpTextCredentialStatus();
+  }
+
+  async function clearPrpTextCredential() {
+    await prpTextSecretStore.clear();
+    prpTextVerification = { state: "unverified", code: null, checkedAt: null };
+    audit("info", "ล้าง PRP text credential แล้ว");
+    return prpTextCredentialStatus();
+  }
+
+  async function requireCredential(infoPromise, missingCode, missingMessage) {
+    const info = await infoPromise;
+    if (info.error) {
+      const error = new Error("secure secret store ใช้งานไม่ได้");
+      error.code = "SECRET_STORE_UNAVAILABLE";
+      throw error;
+    }
+    if (info.invalid || !info.value) {
+      const error = new Error(missingMessage);
+      error.code = missingCode;
+      throw error;
+    }
+    return info.value;
+  }
+
+  async function resolveTextRouting(requestedModel) {
+    const configuration = textProviderConfiguration();
+    if (configuration.provider === "prp") {
+      if (configuration.baseUrlError) throw configuration.baseUrlError;
+      if (!configuration.baseUrl) {
+        const error = new Error("ยังไม่ได้ตั้งค่า PRP text endpoint");
+        error.code = "PRP_TEXT_ENDPOINT_NOT_CONFIGURED";
+        throw error;
+      }
+      if (!configuration.model || /[\r\n;&|<>]/.test(configuration.model)) {
+        const error = new Error("ยังไม่ได้ตั้งค่า PRP text model");
+        error.code = "PRP_TEXT_MODEL_NOT_CONFIGURED";
+        throw error;
+      }
+      const token = await requireCredential(
+        prpTextCredentialInfo(),
+        "PRP_TEXT_CREDENTIAL_NOT_CONFIGURED",
+        "ยังไม่ได้ตั้งค่า PRP text API key",
+      );
+      return {
+        provider: "prp",
+        model: configuration.model,
+        client: createOpenAICompatible({
+          name: "prp",
+          baseURL: prpTextV1BaseUrl(configuration.baseUrl),
+          apiKey: token,
+          includeUsage: true,
+        }),
+      };
+    }
+    const model = cleanText(requestedModel, 500).replaceAll("\\_", "_");
+    if (!model || /[\r\n;&|<>]/.test(model)) {
+      const error = new Error("กรุณาเลือกโมเดลที่ถูกต้อง");
+      error.code = "TEXT_MODEL_NOT_CONFIGURED";
+      throw error;
+    }
+    return { provider: "ollama", model, client: ollamaProvider };
+  }
+
+  function lalinOperationError(body, fallbackCode = "LALIN_STT_FAILED") {
+    const code = cleanText(body?.error?.code, 80) || fallbackCode;
+    const messages = {
+      AUDIO_FORMAT_UNSUPPORTED: "รูปแบบเสียงนี้ไม่อยู่ใน profile ของ Lalin",
+      AUDIO_TOO_LARGE: "ไฟล์เสียงใหญ่เกินขีดจำกัดของ Lalin",
+      LANGUAGE_UNSUPPORTED: "ภาษานี้ไม่อยู่ใน profile ของ Lalin",
+      MODEL_UNAVAILABLE: "Lalin large-v3-turbo ยังไม่พร้อม",
+      WORKER_BUSY: "Lalin worker กำลังประมวลผลอื่นอยู่",
+      DEADLINE_EXCEEDED: "Lalin worker หมดเวลารับงาน",
+      INVALID_REQUEST: "Lalin ปฏิเสธคำขอถอดเสียง",
+    };
+    const error = new Error(messages[code] || "Lalin STT ไม่สำเร็จ");
+    error.code = code;
+    return error;
+  }
+
+  async function transcribeLalinAudio({ audio, mimeType, language } = {}) {
+    const bytes = Buffer.isBuffer(audio) ? audio : Buffer.from(audio || "");
+    const declaredMime = normalizeAudioMimeType(mimeType);
+    if (!LALIN_SUPPORTED_AUDIO_TYPES.has(declaredMime)) {
+      const error = new Error("รูปแบบเสียงไม่รองรับโดย Lalin large-v3-turbo");
+      error.code = "AUDIO_FORMAT_UNSUPPORTED";
+      throw error;
+    }
+    if (!bytes.length) {
+      const error = new Error("ไม่พบข้อมูลเสียง");
+      error.code = "INVALID_AUDIO";
+      throw error;
+    }
+
+    const token = await requireCredential(
+      lalinVoiceCredentialInfo(),
+      "LALIN_CREDENTIAL_NOT_CONFIGURED",
+      "ยังไม่ได้ตั้งค่า Lalin worker API key",
+    );
+    const inspected = await inspectLalinVoiceCredential(token);
+    if (inspected.state !== "verified") {
+      const error = lalinOperationError(null, inspected.code || "LALIN_WORKER_UNAVAILABLE");
+      error.message = inspected.code === "PROFILE_MISMATCH"
+        ? "Lalin worker ไม่ตรงกับ profile large-v3-turbo ที่อนุมัติ"
+        : "Lalin worker ยังไม่พร้อมสำหรับ large-v3-turbo";
+      throw error;
+    }
+    const profile = inspected.profile;
+    const limits = profile?.limits || {};
+    if (Number.isFinite(limits.max_audio_bytes) && bytes.length > limits.max_audio_bytes) {
+      const error = new Error("ไฟล์เสียงใหญ่เกินขีดจำกัดของ Lalin");
+      error.code = "AUDIO_TOO_LARGE";
+      throw error;
+    }
+    const fallbackLanguage = normalizeLalinLanguage(config.assistant.language, "th");
+    const selectedLanguage = normalizeLalinLanguage(language, fallbackLanguage);
+    if (Array.isArray(profile?.languages) && !profile.languages.includes(selectedLanguage)) {
+      const error = new Error("ภาษานี้ไม่อยู่ใน profile ของ Lalin");
+      error.code = "LANGUAGE_UNSUPPORTED";
+      throw error;
+    }
+
+    const attemptId = `rwang-${Date.now()}-${randomBytes(8).toString("hex")}`;
+    const timestamp = Date.now();
+    const envelope = {
+      contract_version: "1.0",
+      kind: "asr",
+      invocation_id: attemptId,
+      attempt_id: attemptId,
+      target: {
+        runtime_id: cleanText(inspected.described?.runtime_id, 128),
+        runtime_epoch: cleanText(inspected.readiness?.runtime_epoch || inspected.described?.runtime_epoch, 128),
+        physical_resource_id: cleanText(inspected.described?.physical_resource_id, 128),
+        profile_id: cleanText(profile?.profile_id, 128),
+        profile_revision: cleanText(profile?.profile_revision, 128),
+      },
+      admission: {
+        lease_id: `rwang-lease-${randomBytes(8).toString("hex")}`,
+        start_before: new Date(timestamp + 30_000).toISOString(),
+        deadline_at: new Date(timestamp + LALIN_VOICE_TRANSCRIBE_MAX_WAIT_MS).toISOString(),
+      },
+      input: {
+        language: selectedLanguage,
+        audio_sha256: createHash("sha256").update(bytes).digest("hex"),
+        audio_bytes: bytes.length,
+        declared_mime_type: declaredMime,
+      },
+    };
+    const form = new FormData();
+    form.set("envelope", JSON.stringify(envelope));
+    form.set("audio", new Blob([bytes], { type: declaredMime }), "rwang-input");
+
+    let status;
+    try {
+      const accepted = await requestLalinVoice("/worker/v1/operations", token, {
+        method: "POST",
+        body: form,
+        timeoutMs: LALIN_VOICE_TRANSCRIBE_TIMEOUT_MS,
+      });
+      if ([401, 403].includes(accepted.response.status)) throw lalinOperationError(accepted.body, "INVALID_CREDENTIAL");
+      if (!accepted.response.ok) throw lalinOperationError(accepted.body);
+      status = accepted.body;
+      const deadline = Date.now() + LALIN_VOICE_TRANSCRIBE_MAX_WAIT_MS;
+      while (
+        status?.operation_outcome == null
+        && !["FINISHED", "UNKNOWN"].includes(status?.execution_status)
+        && Date.now() < deadline
+      ) {
+        await delay(250);
+        const polled = await requestLalinVoice(`/worker/v1/operations/${encodeURIComponent(attemptId)}`, token, {
+          timeoutMs: LALIN_VOICE_TRANSCRIBE_TIMEOUT_MS,
+        });
+        if ([401, 403].includes(polled.response.status)) throw lalinOperationError(polled.body, "INVALID_CREDENTIAL");
+        if (!polled.response.ok) throw lalinOperationError(polled.body);
+        status = polled.body;
+      }
+      if (Date.now() >= deadline && status?.operation_outcome == null) {
+        const error = new Error("Lalin STT ใช้เวลานานเกินกำหนด");
+        error.code = "LALIN_STT_TIMEOUT";
+        throw error;
+      }
+      if (status?.operation_outcome !== "SUCCEEDED" || typeof status?.result?.text !== "string") {
+        throw lalinOperationError(status, "LALIN_STT_FAILED");
+      }
+      const text = cleanText(status.result.text, 800);
+      if (!text) {
+        const error = new Error("Lalin ไม่พบข้อความในเสียง");
+        error.code = "LALIN_STT_EMPTY";
+        throw error;
+      }
+      return {
+        text,
+        language: normalizeLalinLanguage(status.result.language, selectedLanguage),
+        provider: "lalin",
+        profile: profile.profile_id,
+        profileRevision: profile.profile_revision,
+      };
+    } finally {
+      await requestLalinVoice(`/worker/v1/operations/${encodeURIComponent(attemptId)}/payload`, token, {
+        method: "DELETE",
+        timeoutMs: LALIN_VOICE_VERIFY_TIMEOUT_MS,
+      }).catch(() => {});
+    }
+  }
+
   function remotePolicy() {
     return {
       screenShare: config.features.screenShare !== false && config.skillStates.screen_share !== false,
@@ -668,6 +1293,10 @@ export async function createRwangCore({
     const secrets = [
       config.access.token,
       config.homeAssistant.token,
+      process.env.RWANG_LALIN_VOICE_WORKER_TOKEN,
+      lalinVoiceSecretStore.peek(),
+      process.env.RWANG_PRP_TEXT_CLIENT_KEY,
+      prpTextSecretStore.peek(),
       ...config.mcpServers.flatMap((server) => Object.values(server.headers || {})),
       ...config.webhooks.flatMap((hook) => Object.values(hook.headers || {})),
     ].map((secret) => String(secret || "")).filter((secret) => secret.length >= 4);
@@ -1426,8 +2055,9 @@ export async function createRwangCore({
       "Your role is an expert software engineer and technical architect. For engineering work, use Documentation-Driven Development (DDD) and Root Cause Analysis (RCA).",
       "Reply in Thai unless the user clearly uses another language. Be concise, practical, and friendly.",
       "The name RWANG (อาหวัง) is an AI disclosure by name: you aim to help the user while warning that a conversational AI may try to please; warmth or agreement is not evidence that an answer is correct. Explain this meaning when asked who you are or why you have this name.",
-      "You run through Ollama on the user's own machine. Ground factual and action claims in the conversation context or verified tool results. Never claim an external action happened unless a tool result says it completed.",
-      "Your warm tone is a designed interface, not proof of human feelings or correctness. Identify yourself as RWANG (อาหวัง), an AI assistant running locally through Ollama; never claim human feelings, consciousness, attachment, or concern.",
+      "Your text response runs through the configured local provider (Ollama or the approved PRP text endpoint). Ground factual and action claims in the conversation context or verified tool results. Never claim an external action happened unless a tool result says it completed.",
+      "The AI assistant running locally through Ollama remains the migration default; PRP is used only when the user explicitly selects and configures it.",
+      "Your warm tone is a designed interface, not proof of human feelings or correctness. Identify yourself as RWANG (อาหวัง), an AI assistant running through the configured local text provider; never claim human feelings, consciousness, attachment, or concern.",
       "Be supportive without encouraging emotional dependency, exclusivity, or treating rapport as authority.",
       "Accuracy and user agency come before agreement or rapport. Do not flatter, mirror, or agree merely to please; politely challenge false, unsupported, or inconsistent premises.",
       "When you agree, explain why. Distinguish known facts, inferences, subjective preferences, and recommendations; state uncertainty, assumptions, or missing evidence when material.",
@@ -1480,9 +2110,9 @@ export async function createRwangCore({
 
   async function streamChat(req, res, readBody) {
     const body = await readBody(req);
-    const model = cleanText(body.model, 500).replaceAll("\\_", "_");
+    const routing = await resolveTextRouting(body.model);
+    const model = routing.model;
     const inputMessages = Array.isArray(body.messages) ? body.messages : [];
-    if (!model || /[\r\n;&|<>]/.test(model)) throw new Error("กรุณาเลือกโมเดลที่ถูกต้อง");
     const messages = inputMessages
       .slice(-40)
       .map((message) => ({
@@ -1512,7 +2142,7 @@ export async function createRwangCore({
       const built = await buildAgentTools({ localWorkspace: isLocal(req) });
       clients = built.clients;
       const agent = new ToolLoopAgent({
-        model: ollamaProvider.chatModel(model),
+        model: routing.client.chatModel(model),
         instructions: instructions(),
         tools: built.tools,
         stopWhen: isStepCount(8),
@@ -1523,7 +2153,7 @@ export async function createRwangCore({
         abortSignal: controller.signal,
         timeout: { totalMs: 180000, stepMs: 120000 },
       });
-      res.write(`${JSON.stringify({ type: "mode", mode: "agent", toolCount: Object.keys(built.tools).length })}\n`);
+      res.write(`${JSON.stringify({ type: "mode", mode: "agent", provider: routing.provider, toolCount: Object.keys(built.tools).length })}\n`);
       for await (const part of result.stream) {
         if (part.type === "text-delta") {
           wroteText = true;
@@ -1546,20 +2176,22 @@ export async function createRwangCore({
       if (!wroteText && publicApprovals().some((item) => item.status === "pending")) {
         res.write(`${JSON.stringify({ type: "delta", content: "ผมเตรียมคำสั่งไว้แล้ว กรุณาตรวจสอบการ์ดอนุมัติก่อนดำเนินการครับ" })}\n`);
       }
-      res.write(`${JSON.stringify({ type: "done", model, mode: "agent" })}\n`);
+      res.write(`${JSON.stringify({ type: "done", model, provider: routing.provider, mode: "agent" })}\n`);
     } catch (error) {
       for (const client of clients) await client.close().catch(() => {});
       clients = [];
       if (!controller.signal.aborted) {
         if (hadAgentActivity) {
-          res.write(`${JSON.stringify({ type: "error", error: cleanText(error?.message || error, 500) })}\n`);
-        } else {
+          res.write(`${JSON.stringify({ type: "error", error: redactSensitiveText(error?.message || error, 500) })}\n`);
+        } else if (routing.provider === "ollama") {
           try {
             await streamNativeFallback({ model, messages, res, cause: error, signal: controller.signal });
             res.write(`${JSON.stringify({ type: "done", model, mode: "chat" })}\n`);
           } catch (fallbackError) {
             if (!controller.signal.aborted) res.write(`${JSON.stringify({ type: "error", error: fallbackError.message })}\n`);
           }
+        } else {
+          res.write(`${JSON.stringify({ type: "error", error: redactSensitiveText(error?.message || error, 500), code: "PRP_TEXT_UNAVAILABLE" })}\n`);
         }
       }
     } finally {
@@ -1581,6 +2213,8 @@ export async function createRwangCore({
         language: config.assistant.language,
         defaultModel: config.assistant.defaultModel,
         autoSpeak: config.assistant.autoSpeak,
+        textProvider: textProviderConfiguration().provider,
+        textModel: textProviderConfiguration().model,
       },
       access: {
         local,
@@ -1619,6 +2253,23 @@ export async function createRwangCore({
         hasToken: Boolean(config.homeAssistant.token),
         ...integrationStatus.homeAssistant,
       },
+      voiceWorker: {
+        mode: lalinVoice.mode,
+        ...(local ? {
+          url: lalinVoice.url,
+          profile: lalinVoice.profile,
+          fallbackProfile: lalinVoice.fallbackProfile,
+        } : {}),
+        credential: await lalinVoiceCredentialStatus(),
+      },
+      textProvider: {
+        provider: textProviderConfiguration().provider,
+        credential: await prpTextCredentialStatus(),
+        ...(local ? {
+          baseUrl: textProviderConfiguration().baseUrl,
+          model: textProviderConfiguration().model,
+        } : {}),
+      },
       mcpServers: config.mcpServers.map((server) => local ? revealMcpServer(server) : sanitizeMcpServer(server)),
       webhooks: config.webhooks.map((hook) => ({
         id: hook.id,
@@ -1648,6 +2299,15 @@ export async function createRwangCore({
         language: /^[a-z]{2,3}(?:-[A-Z]{2})?$/.test(body.language || "") ? body.language : config.assistant.language,
         defaultModel: cleanText(body.defaultModel, 500),
         autoSpeak: body.autoSpeak !== false,
+        textProvider: body.textProvider == null
+          ? config.assistant.textProvider
+          : normalizeTextProvider(body.textProvider),
+        textBaseUrl: body.textBaseUrl == null
+          ? config.assistant.textBaseUrl
+          : body.textBaseUrl
+            ? normalizePrpTextBaseUrl(body.textBaseUrl)
+            : "",
+        textModel: body.textModel == null ? config.assistant.textModel : cleanText(body.textModel, 500),
       };
       await saveConfig();
       return { ok: true };
@@ -1885,7 +2545,7 @@ export async function createRwangCore({
     return activeDocumentAudit;
   }
 
-  async function handleApi(req, res, url, { readBody, json }) {
+  async function handleApi(req, res, url, { readBody, readAudio, json }) {
     if (url.pathname.startsWith("/api/rwang/planner/")) {
       if (!isLocal(req)) return json(res, 403, {
         ok: false,
@@ -1987,6 +2647,95 @@ export async function createRwangCore({
         return json(res, 200, { ok: true, result: await runDocumentSelfAudit() });
       } catch (error) {
         return json(res, error?.httpStatus || 500, { ok: false, error: cleanText(error?.message || error, 400) });
+      }
+    }
+    if (url.pathname === "/api/rwang/voice/config") {
+      if (!isLocal(req)) return json(res, 403, { ok: false, error: "ตั้งค่า voice worker ได้จากเครื่องหลักเท่านั้น", code: "LOCAL_ONLY" });
+      if (req.method === "GET") return json(res, 200, { ok: true, credential: await lalinVoiceCredentialStatus() });
+      try {
+        if (req.method === "PUT") {
+          return json(res, 200, { ok: true, credential: await setLalinVoiceCredential((await readBody(req, 12 * 1024))?.apiKey) });
+        }
+        if (req.method === "DELETE") {
+          return json(res, 200, { ok: true, credential: await clearLalinVoiceCredential() });
+        }
+        return false;
+      } catch (error) {
+        const messages = {
+          INVALID_CREDENTIAL: "API key ไม่ถูกต้องหรือยืนยันกับ Lalin ไม่สำเร็จ",
+          PROFILE_MISMATCH: "Lalin voice worker ไม่ตรงกับ profile ที่อนุมัติ",
+          SECRET_STORE_UNAVAILABLE: "secure secret store ใช้งานไม่ได้",
+        };
+        const code = ["INVALID_CREDENTIAL", "PROFILE_MISMATCH", "SECRET_STORE_UNAVAILABLE"].includes(error?.code)
+          ? error.code
+          : "VOICE_CONFIG_FAILED";
+        return json(res, code === "SECRET_STORE_UNAVAILABLE" ? 503 : 400, {
+          ok: false,
+          error: messages[code] || "บันทึก voice worker credential ไม่สำเร็จ",
+          code,
+        });
+      }
+    }
+    if (url.pathname === "/api/rwang/voice/transcribe") {
+      if (!isLocal(req)) return json(res, 403, { ok: false, error: "ถอดเสียงด้วย Lalin ได้จากเครื่องหลักเท่านั้น", code: "LOCAL_ONLY" });
+      if (req.method !== "POST") return false;
+      try {
+        if (typeof readAudio !== "function") throw new Error("audio reader unavailable");
+        const packet = await readAudio(req);
+        const result = await transcribeLalinAudio({
+          audio: packet.audio,
+          mimeType: packet.mimeType,
+          language: url.searchParams.get("language") || config.assistant.language,
+        });
+        return json(res, 200, { ok: true, ...result });
+      } catch (error) {
+        const messages = {
+          SECRET_STORE_UNAVAILABLE: "secure secret store ใช้งานไม่ได้",
+          LALIN_CREDENTIAL_NOT_CONFIGURED: "ยังไม่ได้ตั้งค่า Lalin worker API key",
+          INVALID_CREDENTIAL: "Lalin worker API key ใช้งานไม่ได้",
+          PROFILE_MISMATCH: "Lalin worker ไม่ตรงกับ profile large-v3-turbo",
+          WORKER_UNAVAILABLE: "Lalin worker ยังไม่พร้อม",
+          LALIN_WORKER_UNAVAILABLE: "Lalin worker ยังไม่พร้อม",
+          LALIN_STT_TIMEOUT: "Lalin STT ใช้เวลานานเกินกำหนด",
+        };
+        const code = cleanText(error?.code, 80) || "LALIN_STT_FAILED";
+        const status = Number.isInteger(error?.status)
+          ? error.status
+          : code === "SECRET_STORE_UNAVAILABLE"
+            ? 503
+            : 400;
+        return json(res, status, {
+          ok: false,
+          error: messages[code] || cleanText(error?.message || error, 300),
+          code,
+        });
+      }
+    }
+    if (url.pathname === "/api/rwang/text/config") {
+      if (!isLocal(req)) return json(res, 403, { ok: false, error: "ตั้งค่า PRP text ได้จากเครื่องหลักเท่านั้น", code: "LOCAL_ONLY" });
+      if (req.method === "GET") return json(res, 200, { ok: true, credential: await prpTextCredentialStatus() });
+      try {
+        if (req.method === "PUT") {
+          return json(res, 200, { ok: true, credential: await setPrpTextCredential((await readBody(req, 12 * 1024))?.apiKey) });
+        }
+        if (req.method === "DELETE") {
+          return json(res, 200, { ok: true, credential: await clearPrpTextCredential() });
+        }
+        return false;
+      } catch (error) {
+        const messages = {
+          INVALID_CREDENTIAL: "API key ไม่ถูกต้องหรือยืนยันกับ PRP text ไม่สำเร็จ",
+          PRP_TEXT_MODEL_NOT_FOUND: "ไม่พบ PRP text model ที่ตั้งค่าไว้",
+          SECRET_STORE_UNAVAILABLE: "secure secret store ใช้งานไม่ได้",
+        };
+        const code = ["INVALID_CREDENTIAL", "PRP_TEXT_MODEL_NOT_FOUND", "SECRET_STORE_UNAVAILABLE"].includes(error?.code)
+          ? error.code
+          : "TEXT_CONFIG_FAILED";
+        return json(res, code === "SECRET_STORE_UNAVAILABLE" ? 503 : 400, {
+          ok: false,
+          error: messages[code] || cleanText(error?.message || error, 300),
+          code,
+        });
       }
     }
     if (req.method === "POST" && url.pathname === "/api/rwang/config") {

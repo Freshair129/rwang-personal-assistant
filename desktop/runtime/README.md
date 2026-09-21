@@ -1,7 +1,7 @@
 ---
-version: "0.2.0b"
+version: "0.3.0b"
 created_at: "2026-09-03T02:33:20+07:00,RWANG,3a6657caf0519f54b8bee05658f3047856e64b65"
-last_update: "2026-09-04T06:02:32+07:00,RWANG"
+last_update: "2026-09-21T08:35:25+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -20,6 +20,7 @@ The Tauri host owns the installed desktop lifecycle and starts
 <resource-dir>/rwang/entrypoint.mjs
 <resource-dir>/rwang/server.mjs
 <resource-dir>/rwang/rwang.mjs
+<resource-dir>/rwang/secret-store.mjs
 <resource-dir>/rwang/remote.mjs
 <resource-dir>/rwang/spotlight.mjs
 <resource-dir>/rwang/document-intelligence.mjs
@@ -140,6 +141,7 @@ cargo check --manifest-path src-tauri/Cargo.toml --features autostart
 
 | From | To | Change |
 |---|---|---|
+| 0.2.0b beta | 0.3.0b beta | Added the protected Lalin voice-worker secret-store module to the staged runtime contract |
 | 0.1.0b beta | 0.2.0b beta | Corrected workspace consent, nonce proof, window shutdown, shortcut, autostart, and `.env` contracts |
 | Product 0.5.0 | Product 0.5.0 | No product version change |
 
@@ -147,5 +149,6 @@ cargo check --manifest-path src-tauri/Cargo.toml --features autostart
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
-| 0.1.0b | 2026-09-03 | beta | Initial portable sidecar runtime contract | 3a6657c | RWANG |
+| 0.3.0b | 2026-09-21 | beta | Include the Lalin voice-worker protected secret store in the portable sidecar layout | UNCOMMITTED | RWANG |
 | 0.2.0b | 2026-09-04 | beta | Align installed configuration, safe workspace default, authenticated readiness, and real lifecycle behavior | ba1200d | RWANG |
+| 0.1.0b | 2026-09-03 | beta | Initial portable sidecar runtime contract | 3a6657c | RWANG |

@@ -27,6 +27,14 @@ const DEFAULT_PORT = 4173;
 const TRUE_VALUES = new Set(["1", "true", "yes", "on"]);
 const DESKTOP_NONCE_PATTERN = /^[0-9a-fA-F]{64}$/;
 const DESKTOP_CHALLENGE_PATTERN = /^[0-9a-f]{64}$/;
+const LALIN_AUDIO_CONTENT_TYPES = new Set([
+  "audio/wav",
+  "audio/x-wav",
+  "audio/mpeg",
+  "audio/ogg",
+  "audio/flac",
+  "audio/mp4",
+]);
 
 // Runtime roots intentionally remain unset until startup validation completes. This
 // prevents a malformed environment from causing writes to the source checkout.
@@ -937,6 +945,27 @@ async function readBody(req, maxBytes = 1024 * 1024) {
   return raw ? JSON.parse(raw) : {};
 }
 
+async function readRawBody(req, maxBytes = 10 * 1024 * 1024) {
+  const declared = Number(req.headers["content-length"] || 0);
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    const error = new Error(`request body ใหญ่เกิน ${Math.ceil(maxBytes / 1024)} KB`);
+    error.status = 413;
+    throw error;
+  }
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > maxBytes) {
+      const error = new Error(`request body ใหญ่เกิน ${Math.ceil(maxBytes / 1024)} KB`);
+      error.status = 413;
+      throw error;
+    }
+    chunks.push(Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+
 function json(res, status, data, extraHeaders = {}) {
   res.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
@@ -1039,8 +1068,23 @@ async function api(req, res, url) {
   if (principal.kind === "device" && !rwang.isDeviceApiAllowed(req, url)) {
     return json(res, 403, { error: "อุปกรณ์นี้ไม่มี scope สำหรับคำสั่งดังกล่าว" });
   }
-  if (req.method === "POST") {
+  const isLalinTranscribe = req.method === "POST" && url.pathname === "/api/rwang/voice/transcribe";
+  if (isLalinTranscribe) {
+    if (!sameHostOrigin(req)) {
+      return json(res, 403, { error: "ปฏิเสธคำขอจากเว็บไซต์อื่น" });
+    }
+    const contentType = String(req.headers["content-type"] || "").split(";", 1)[0].trim().toLowerCase();
+    if (!LALIN_AUDIO_CONTENT_TYPES.has(contentType)) {
+      return json(res, 415, { error: "Lalin STT ต้องใช้ไฟล์เสียง wav, mpeg, ogg, flac หรือ mp4" });
+    }
+  } else if (req.method === "POST") {
     if (!enforceJsonPost(req, res)) return;
+  }
+  if (req.method === "PUT" && ["/api/rwang/voice/config", "/api/rwang/text/config"].includes(url.pathname)) {
+    if (!enforceJsonPost(req, res)) return;
+  }
+  if (req.method === "DELETE" && ["/api/rwang/voice/config", "/api/rwang/text/config"].includes(url.pathname) && !sameHostOrigin(req)) {
+    return json(res, 403, { error: "ปฏิเสธคำขอจากเว็บไซต์อื่น" });
   }
   const spotlightHandled = await handleSpotlightApi(req, res, url, {
     principal,
@@ -1125,7 +1169,14 @@ async function api(req, res, url) {
       return json(res, 400, { ok: false, error: error.message });
     }
   }
-  const handled = await rwang.handleApi(req, res, url, { readBody, json });
+  const handled = await rwang.handleApi(req, res, url, {
+    readBody,
+    readAudio: async (request) => ({
+      audio: await readRawBody(request, 10 * 1024 * 1024),
+      mimeType: String(request.headers["content-type"] || "").split(";", 1)[0].trim().toLowerCase(),
+    }),
+    json,
+  });
   if (handled !== false) return handled;
   return false;
 }

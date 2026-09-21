@@ -25,6 +25,7 @@ const state = {
   voiceMode: null,
   recognitionStarting: false,
   recognitionRestartTimer: null,
+  lalinRecording: null,
   wakeResume: false,
   deferredInstall: null,
   toastTimer: null,
@@ -686,7 +687,7 @@ function preferredAutoSpeak(rwang = state.rwang) {
 }
 
 function setLocalConfigurationMode(local) {
-  for (const formId of ["assistantSettings", "perceptionSettings", "homeAssistantForm", "mcpForm", "webhookForm", "scheduleSettings", "scheduleForm"]) {
+  for (const formId of ["assistantSettings", "prpTextSettings", "perceptionSettings", "homeAssistantForm", "mcpForm", "webhookForm", "scheduleSettings", "scheduleForm"]) {
     for (const control of $$(`#${formId} input, #${formId} select, #${formId} textarea, #${formId} button`)) {
       control.disabled = !local;
       if (!local) control.title = "แก้การตั้งค่านี้ได้จากเครื่องหลักเท่านั้น";
@@ -1004,6 +1005,71 @@ function renderWebhooks(webhooks = []) {
   }
 }
 
+function renderLalinVoiceWorker(voiceWorker = {}) {
+  const credential = voiceWorker.credential || {};
+  const stateLabel = {
+    verified: "VERIFIED",
+    unverified: "UNVERIFIED",
+    invalid: "INVALID",
+    not_configured: "NOT CONFIGURED",
+    store_error: "STORE ERROR",
+  }[credential.verification] || "UNKNOWN";
+  const sourceLabel = credential.source && credential.source !== "not configured"
+    ? ` · ${String(credential.source).toUpperCase()}`
+    : "";
+  const status = $("#lalinVoiceCredentialStatus");
+  const detail = $("#lalinVoiceCredentialDetail");
+  if (!status || !detail) return;
+  status.textContent = `${stateLabel}${sourceLabel}`;
+  if (!credential.configured) {
+    detail.textContent = "ยังไม่ได้ตั้งค่า credential";
+    return;
+  }
+  const worker = voiceWorker.url ? `Worker ${voiceWorker.url}` : "Local voice worker";
+  const profile = voiceWorker.profile ? ` · profile ${voiceWorker.profile}` : "";
+  const verification = credential.verification === "verified"
+    ? "ยืนยันกับ worker แล้ว"
+    : credential.verification === "invalid"
+      ? "credential ใช้งานไม่ได้"
+      : "บันทึกแล้ว แต่ยังยืนยัน readiness ไม่สำเร็จ";
+  detail.textContent = `${verification} · ${worker}${profile}`;
+  if (credential.verification === "verified") {
+    $("#voiceHint").textContent = "LALIN STT · large-v3-turbo · push-to-talk · wake-word ใช้ browser listener";
+  }
+}
+
+function renderPrpTextProvider(textProvider = {}) {
+  const credential = textProvider.credential || {};
+  const status = $("#prpTextCredentialStatus");
+  const detail = $("#prpTextCredentialDetail");
+  if (!status || !detail) return;
+  const provider = textProvider.provider || "ollama";
+  const stateLabel = {
+    verified: "VERIFIED",
+    unverified: "UNVERIFIED",
+    invalid: "INVALID",
+    not_configured: "NOT CONFIGURED",
+    not_required: "NOT REQUIRED",
+    store_error: "STORE ERROR",
+  }[credential.verification] || "UNKNOWN";
+  const sourceLabel = credential.source && credential.source !== "not configured"
+    ? ` · ${String(credential.source).toUpperCase()}`
+    : "";
+  status.textContent = `${stateLabel}${sourceLabel}`;
+  if (provider !== "prp") {
+    detail.textContent = "ตอนนี้ใช้ Ollama สำหรับ text · Lalin large-v3-turbo แยกเป็น STT";
+  } else if (!credential.configured) {
+    detail.textContent = "เลือก PRP แล้ว แต่ยังไม่ได้ตั้งค่า client key";
+  } else {
+    detail.textContent = credential.verification === "verified"
+      ? `PRP text พร้อมใช้ · model ${textProvider.model || "ยังไม่ระบุ"}`
+      : `บันทึกแล้ว แต่ยังยืนยัน PRP text ไม่สำเร็จ · model ${textProvider.model || "ยังไม่ระบุ"}`;
+  }
+  $("#textProviderInput").value = provider;
+  $("#textBaseUrlInput").value = textProvider.baseUrl || "";
+  $("#textModelInput").value = textProvider.model || "";
+}
+
 function hydrateSettings(rwang = state.rwang) {
   if (!rwang) return;
   const identity = rwang.identity || {};
@@ -1028,6 +1094,8 @@ function hydrateSettings(rwang = state.rwang) {
   $("#scheduleGlobalApprovalInput").checked = scheduler.requireApproval !== false;
   renderMcpServers(rwang.mcpServers || []);
   renderWebhooks(rwang.webhooks || []);
+  renderLalinVoiceWorker(rwang.voiceWorker || {});
+  renderPrpTextProvider(rwang.textProvider || {});
   renderMobile(rwang);
   setLocalConfigurationMode(rwang.access?.local !== false);
 }
@@ -1052,6 +1120,8 @@ function renderRwang(rwang) {
   renderMobile(rwang);
   renderMcpServers(rwang.mcpServers || []);
   renderWebhooks(rwang.webhooks || []);
+  renderLalinVoiceWorker(rwang.voiceWorker || {});
+  renderPrpTextProvider(rwang.textProvider || {});
   renderLoadout(rwang);
   setLocalConfigurationMode(rwang.access?.local !== false);
   state.planner?.setContext(state.status || { rwang });
@@ -1306,6 +1376,9 @@ function appendTrace(message, traceText) {
 }
 
 function currentModel() {
+  if (state.rwang?.textProvider?.provider === "prp") {
+    return state.rwang.textProvider.model || state.rwang.identity?.textModel || "";
+  }
   return $("#modelSelect").value || state.rwang?.identity?.defaultModel || "";
 }
 
@@ -1314,13 +1387,18 @@ async function sendPrompt(rawPrompt) {
   if (!prompt || state.chatBusy) return;
   const model = currentModel();
   if (!model) {
-    showToast("ยังไม่มีโมเดลพร้อมใช้ · ไปที่ SYSTEMS แล้วใช้ ollama run หรือ ollama pull ก่อน");
-    switchView("systems");
+    if (state.rwang?.textProvider?.provider === "prp") {
+      showToast("ยังไม่ได้ตั้งค่า PRP text model · เปิด Settings → PRP Text");
+      openSettings("text-provider");
+    } else {
+      showToast("ยังไม่มีโมเดลพร้อมใช้ · ไปที่ SYSTEMS แล้วใช้ ollama run หรือ ollama pull ก่อน");
+      switchView("systems");
+    }
     return;
   }
 
   const resumeWake = $("#wakeToggle").checked;
-  stopRecognition({ keepWake: resumeWake });
+  stopRecognition({ keepWake: resumeWake, cancel: true });
   window.speechSynthesis?.cancel();
   state.chatBusy = true;
   state.wakeResume = resumeWake;
@@ -1478,20 +1556,146 @@ function wakeWord() {
   return String(state.rwang?.identity?.wakeWord || $("#wakeWordInput").value || "อาหวัง").trim();
 }
 
-async function startRecognition(mode = "push") {
-  const recognition = configureRecognition();
-  if (!recognition) {
-    setCore("error", "Browser นี้ไม่มี Speech Recognition", "ยังพิมพ์แชทและใช้คำตอบเสียงได้ตามปกติ");
-    showToast("Browser นี้ไม่รองรับ SpeechRecognition · ใช้ Chrome หรือ Edge เวอร์ชันล่าสุด");
+function lalinSttAvailable() {
+  return state.rwang?.access?.local === true
+    && state.rwang?.voiceWorker?.credential?.verification === "verified";
+}
+
+function encodePcmWav(chunks, sourceSampleRate) {
+  const totalSamples = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const source = new Float32Array(totalSamples);
+  let offset = 0;
+  for (const chunk of chunks) {
+    source.set(chunk, offset);
+    offset += chunk.length;
+  }
+  const targetSampleRate = 16000;
+  const targetLength = Math.max(1, Math.round(source.length * targetSampleRate / sourceSampleRate));
+  const bytes = new ArrayBuffer(44 + targetLength * 2);
+  const view = new DataView(bytes);
+  const writeAscii = (position, value) => {
+    for (let index = 0; index < value.length; index += 1) view.setUint8(position + index, value.charCodeAt(index));
+  };
+  writeAscii(0, "RIFF");
+  view.setUint32(4, 36 + targetLength * 2, true);
+  writeAscii(8, "WAVE");
+  writeAscii(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, targetSampleRate, true);
+  view.setUint32(28, targetSampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeAscii(36, "data");
+  view.setUint32(40, targetLength * 2, true);
+  for (let index = 0; index < targetLength; index += 1) {
+    const sourceIndex = Math.min(source.length - 1, Math.floor(index * sourceSampleRate / targetSampleRate));
+    const sample = Math.max(-1, Math.min(1, source[sourceIndex] || 0));
+    view.setInt16(44 + index * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+  }
+  return new Blob([bytes], { type: "audio/wav" });
+}
+
+async function startLalinRecording() {
+  if (!navigator.mediaDevices?.getUserMedia) throw new Error("Browser นี้ไม่รองรับการอัดเสียงจากไมค์");
+  const AudioContext = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContext) throw new Error("Browser นี้ไม่รองรับ Web Audio สำหรับ Lalin STT");
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+  });
+  let context;
+  try {
+    context = new AudioContext();
+    const source = context.createMediaStreamSource(stream);
+    const processor = context.createScriptProcessor(4096, 1, 1);
+    const mute = context.createGain();
+    mute.gain.value = 0;
+    const chunks = [];
+    const recording = {
+      stream,
+      context,
+      source,
+      processor,
+      mute,
+      chunks,
+      sampleRate: context.sampleRate,
+    };
+    processor.onaudioprocess = (event) => {
+      if (state.lalinRecording !== recording) return;
+      chunks.push(new Float32Array(event.inputBuffer.getChannelData(0)));
+    };
+    source.connect(processor);
+    processor.connect(mute);
+    mute.connect(context.destination);
+    await context.resume();
+    state.lalinRecording = recording;
+    state.voiceMode = "push";
+    state.recognitionStarting = false;
+    setCore("listening", "กำลังฟังผ่าน Lalin...", "กดไมค์อีกครั้งเพื่อส่งเสียงให้ Whisper large-v3-turbo");
+    $("#voiceHint").textContent = "LALIN STT · large-v3-turbo · WAV 16 kHz · ENTER ส่ง · SHIFT+ENTER ขึ้นบรรทัดใหม่";
+  } catch (error) {
+    stream.getTracks().forEach((track) => track.stop());
+    await context?.close().catch(() => {});
+    throw error;
+  }
+}
+
+async function finishLalinRecording(recording, { cancel = false } = {}) {
+  recording.processor.onaudioprocess = null;
+  recording.source.disconnect();
+  recording.processor.disconnect();
+  recording.mute.disconnect();
+  recording.stream.getTracks().forEach((track) => track.stop());
+  await recording.context.close().catch(() => {});
+  if (cancel || !recording.chunks.length) {
+    if (!state.chatBusy) setCore("standby");
     return;
   }
+  setCore("thinking", "กำลังถอดเสียง...", "Lalin worker · faster-whisper large-v3-turbo");
+  try {
+    const audio = encodePcmWav(recording.chunks, recording.sampleRate);
+    const language = state.rwang?.identity?.language || "th-TH";
+    const response = await fetch(`/api/rwang/voice/transcribe?language=${encodeURIComponent(language)}`, {
+      method: "POST",
+      headers: authHeaders({ "content-type": "audio/wav" }),
+      body: audio,
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new ApiError(payload.error || `Lalin STT HTTP ${response.status}`, response.status, payload);
+    const text = String(payload.text || "").trim();
+    if (!text) throw new Error("Lalin ไม่พบข้อความในเสียง");
+    $("#chatInput").value = text;
+    await sendPrompt(text);
+  } catch (error) {
+    setCore("error", "ถอดเสียงไม่สำเร็จ", "ตรวจสถานะ Lalin worker แล้วลองใหม่");
+    showToast(`Lalin STT: ${error.message}`, 5200);
+  }
+}
+
+async function startRecognition(mode = "push") {
   if (!window.isSecureContext && !state.rwang?.access?.local) {
     showToast("ไมค์บนมือถือผ่าน LAN HTTP อาจถูกบล็อก · ใช้ trusted HTTPS เพื่อเปิดเสียง");
   }
   clearTimeout(state.recognitionRestartTimer);
   if (state.voiceMode || state.recognitionStarting) {
-    stopRecognition({ keepWake: mode === "wake" });
+    stopRecognition({ keepWake: mode === "wake", cancel: true });
     setTimeout(() => void startRecognition(mode), 180);
+    return;
+  }
+  if (mode === "push" && lalinSttAvailable()) {
+    try {
+      await startLalinRecording();
+    } catch (error) {
+      setCore("error", "เปิด Lalin STT ไม่สำเร็จ", "ตรวจ permission ไมค์และ secure context แล้วลองใหม่");
+      showToast(`Lalin STT: ${error.message}`, 5200);
+    }
+    return;
+  }
+  const recognition = configureRecognition();
+  if (!recognition) {
+    setCore("error", "Browser นี้ไม่มี Speech Recognition", "ตั้งค่า Lalin ให้ verified หรือใช้การพิมพ์แชท");
+    showToast("Browser นี้ไม่รองรับ SpeechRecognition · ตั้งค่า Lalin STT หรือใช้ Chrome/Edge รุ่นล่าสุด");
     return;
   }
   state.voiceMode = mode;
@@ -1508,9 +1712,17 @@ async function startRecognition(mode = "push") {
   }
 }
 
-function stopRecognition({ keepWake = false } = {}) {
+function stopRecognition({ keepWake = false, cancel = false } = {}) {
   clearTimeout(state.recognitionRestartTimer);
   state.wakeResume = keepWake;
+  if (state.lalinRecording) {
+    const recording = state.lalinRecording;
+    state.lalinRecording = null;
+    state.voiceMode = null;
+    state.recognitionStarting = false;
+    void finishLalinRecording(recording, { cancel });
+    return;
+  }
   if (!state.recognition || (!state.voiceMode && !state.recognitionStarting)) return;
   state.voiceMode = null;
   state.recognitionStarting = false;
@@ -1539,7 +1751,7 @@ function handleRecognitionResult(event) {
   if (state.voiceMode === "push") {
     $("#chatInput").value = heard;
     if (finalText.trim()) {
-      stopRecognition({ keepWake: $("#wakeToggle").checked });
+      stopRecognition({ keepWake: $("#wakeToggle").checked, cancel: true });
       void sendPrompt(finalText.trim());
     }
     return;
@@ -1560,7 +1772,7 @@ function handleRecognitionResult(event) {
       return;
     }
     $("#chatInput").value = command;
-    stopRecognition({ keepWake: true });
+    stopRecognition({ keepWake: true, cancel: true });
     void sendPrompt(command);
   }
 }
@@ -1570,7 +1782,7 @@ function speak(text) {
     restoreIdleVoice();
     return;
   }
-  stopRecognition({ keepWake: $("#wakeToggle").checked });
+  stopRecognition({ keepWake: $("#wakeToggle").checked, cancel: true });
   window.speechSynthesis.cancel();
   const clean = String(text)
     .replace(new RegExp("```[\\s\\S]*?```", "g"), " ส่วนโค้ดถูกแสดงบนหน้าจอ ")
@@ -2037,6 +2249,49 @@ async function handleAssistantSettings(event) {
   }
 }
 
+async function handlePrpTextSettings(event) {
+  event.preventDefault();
+  const input = $("#prpTextApiKeyInput");
+  try {
+    await postConfig({
+      section: "assistant",
+      wakeWord: $("#wakeWordInput").value,
+      language: $("#languageInput").value,
+      defaultModel: $("#defaultModelInput").value,
+      autoSpeak: $("#settingsAutoSpeak").checked,
+      textProvider: $("#textProviderInput").value,
+      textBaseUrl: $("#textBaseUrlInput").value,
+      textModel: $("#textModelInput").value,
+    });
+    if (input.value) {
+      await apiFetch("/api/rwang/text/config", {
+        method: "PUT",
+        body: { apiKey: input.value },
+      });
+    }
+    await refreshStatus({ silent: true });
+    showToast($("#textProviderInput").value === "prp"
+      ? "บันทึก PRP text แล้ว · ตรวจสอบสถานะ credential ในการ์ด"
+      : "บันทึกแล้ว · กลับไปใช้ Ollama สำหรับ text");
+  } catch (error) {
+    showToast(`PRP text: ${error.message}`, 5200);
+  } finally {
+    input.value = "";
+  }
+}
+
+async function clearPrpTextCredential() {
+  if (!window.confirm("ล้าง PRP text API key ที่บันทึกไว้หรือไม่")) return;
+  try {
+    await apiFetch("/api/rwang/text/config", { method: "DELETE" });
+    await refreshStatus({ silent: true });
+    $("#prpTextApiKeyInput").value = "";
+    showToast("ล้าง PRP text API key แล้ว");
+  } catch (error) {
+    showToast(`ล้าง PRP text API key: ${error.message}`, 5200);
+  }
+}
+
 async function handlePerceptionSettings(event) {
   event.preventDefault();
   const threshold = Math.max(0.5, Math.min(0.99, Number($("#perceptionThresholdInput").value) || 0.82));
@@ -2229,6 +2484,42 @@ async function handleHomeAssistantSettings(event) {
     showToast(result.status?.state === "online" ? "เชื่อมต่อ Home Assistant สำเร็จ" : `บันทึกแล้ว · ${result.status?.message || result.status?.state || "รอทดสอบ"}`);
   } catch (error) {
     showToast(`Home Assistant: ${error.message}`, 5000);
+  }
+}
+
+async function handleLalinVoiceSettings(event) {
+  event.preventDefault();
+  const input = $("#lalinVoiceApiKeyInput");
+  const apiKey = input.value;
+  if (!apiKey) {
+    showToast("กรุณาใส่ Lalin worker API key ก่อนบันทึก");
+    return;
+  }
+  try {
+    const result = await apiFetch("/api/rwang/voice/config", {
+      method: "PUT",
+      body: { apiKey },
+    });
+    await refreshStatus({ silent: true });
+    showToast(result.credential?.verification === "verified"
+      ? "บันทึก API key แล้ว · Lalin worker พร้อมใช้"
+      : "บันทึก API key แล้ว · รอ Lalin worker พร้อมใช้งาน");
+  } catch (error) {
+    showToast(`Lalin API key: ${error.message}`, 5200);
+  } finally {
+    input.value = "";
+  }
+}
+
+async function clearLalinVoiceCredential() {
+  if (!window.confirm("ล้าง Lalin worker API key ที่บันทึกไว้หรือไม่")) return;
+  try {
+    await apiFetch("/api/rwang/voice/config", { method: "DELETE" });
+    await refreshStatus({ silent: true });
+    $("#lalinVoiceApiKeyInput").value = "";
+    showToast("ล้าง Lalin worker API key แล้ว");
+  } catch (error) {
+    showToast(`ล้าง Lalin API key: ${error.message}`, 5200);
   }
 }
 
@@ -2650,7 +2941,7 @@ function bindEvents() {
     if (event.currentTarget.checked) startRecognition("wake");
     else {
       state.wakeResume = false;
-      stopRecognition();
+      stopRecognition({ cancel: true });
       setCore("standby");
     }
   });
@@ -2682,9 +2973,13 @@ function bindEvents() {
   });
 
   $("#assistantSettings").addEventListener("submit", handleAssistantSettings);
+  $("#prpTextSettings").addEventListener("submit", handlePrpTextSettings);
+  $("#clearPrpTextApiKeyButton").addEventListener("click", () => void clearPrpTextCredential());
   $("#perceptionSettings").addEventListener("submit", handlePerceptionSettings);
   $("#clearBiometricsButton").addEventListener("click", () => void clearBiometricProfiles());
   $("#homeAssistantForm").addEventListener("submit", handleHomeAssistantSettings);
+  $("#lalinVoiceWorkerForm").addEventListener("submit", handleLalinVoiceSettings);
+  $("#clearLalinVoiceApiKeyButton").addEventListener("click", () => void clearLalinVoiceCredential());
   $("#mcpForm").addEventListener("submit", handleMcpForm);
   $("#mcpTransportInput").addEventListener("change", updateMcpTransportFields);
   $("#mcpServerList").addEventListener("click", handleMcpListClick);
@@ -2766,7 +3061,7 @@ function bindEvents() {
 
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
-      if (state.voiceMode === "wake") stopRecognition({ keepWake: true });
+      if (state.voiceMode === "wake" || state.lalinRecording) stopRecognition({ keepWake: true, cancel: true });
     } else {
       void refreshStatus({ silent: true });
       if ($("#wakeToggle").checked) scheduleWakeRestart();
@@ -2776,7 +3071,7 @@ function bindEvents() {
     clearSpotlightTimers();
     state.spotlightController?.abort();
     disconnectEvents();
-    stopRecognition();
+    stopRecognition({ cancel: true });
     state.chatController?.abort();
     void state.perception?.destroy();
     void state.remote?.close();

@@ -1,7 +1,7 @@
 ---
-version: "0.2.0b"
+version: "0.3.0b"
 created_at: "2026-09-03T02:33:20+07:00,Freshair129,3a6657caf0519f54b8bee05658f3047856e64b65"
-last_update: "2026-09-17T02:01:08+07:00,RWANG"
+last_update: "2026-09-21T08:35:25+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -70,6 +70,7 @@ desktop/stage/rwang/
   entrypoint.mjs
   server.mjs
   rwang.mjs
+  secret-store.mjs
   planner.mjs                  # approved local productivity domain
   remote.mjs
   spotlight.mjs
@@ -168,6 +169,7 @@ exercises `-DryRun` and asserts that it does not mutate an existing stage.
 
 | From | To | Change |
 |---|---|---|
+| 0.2.0b | 0.3.0b | Include `secret-store.mjs` in the validated desktop runtime allowlist and manifest |
 | 0.1.0b | 0.2.0b | Include planner backend/frontend modules and the post-stage planner gate |
 | Unversioned | 0.1.0b | Record the deterministic pnpm mode, shell-independent hashing, secret-file exclusion, and post-stage gates |
 | Product 0.5.0 | Product 0.5.0 | Release contract correction only; no product version bump |
@@ -176,5 +178,6 @@ exercises `-DryRun` and asserts that it does not mutate an existing stage.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
+| 0.3.0b | 2026-09-21 | beta | Add the protected Lalin voice-worker secret store to desktop staging | UNCOMMITTED | RWANG |
 | 0.2.0b | 2026-09-17 | beta | Document the approved planner modules and gate in staged desktop resources | UNCOMMITTED | RWANG |
 | 0.1.0b | 2026-09-04 | beta | Align runtime staging documentation with the implemented security and CI contract | ba1200d | RWANG |
