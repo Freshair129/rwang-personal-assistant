@@ -149,9 +149,12 @@ function runCommand(cmd, cwd, timeoutMs) {
     const [exe, ...args] = cmd.trim().split(/\s+/);
     if (!VERIFY_ALLOW.has(exe.replace(/\.(exe|cmd)$/i, ""))) return resolve({ cmd, code: -1, stdout: "", stderr: `refused: "${exe}" is not an allowed verification executable (${[...VERIFY_ALLOW].join(", ")})` });
     const child = process.platform === "win32" ? spawn(cmd.trim(), { cwd, shell: true, env: process.env, windowsHide: true }) : spawn(exe, args, { cwd, env: process.env });
-    let stdout = "", stderr = ""; const t = setTimeout(() => child.kill(), timeoutMs);
+    // On Windows the child is cmd.exe; child.kill() leaves its node grandchild running (an infinite loop in model code
+    // would then hang the gate forever), so kill the whole tree. A timeout is a gate failure, never a hang.
+    let stdout = "", stderr = ""; let timedOut = false;
+    const t = setTimeout(() => { timedOut = true; stderr += `\n[forge] timed out after ${timeoutMs} ms — killed`; if (process.platform === "win32" && child.pid) spawn("taskkill", ["/PID", String(child.pid), "/T", "/F"], { windowsHide: true }); else child.kill("SIGKILL"); }, timeoutMs);
     child.stdout.on("data", (d) => (stdout += d)); child.stderr.on("data", (d) => (stderr += d));
-    child.on("close", (code) => { clearTimeout(t); resolve({ cmd, code, stdout: stdout.slice(-8000), stderr: stderr.slice(-8000) }); });
+    child.on("close", (code) => { clearTimeout(t); resolve({ cmd, code: timedOut ? 124 : code, timed_out: timedOut, stdout: stdout.slice(-8000), stderr: stderr.slice(-8000) }); });
     child.on("error", (e) => { clearTimeout(t); resolve({ cmd, code: -1, stdout, stderr: String(e) }); });
   });
 }
@@ -165,7 +168,7 @@ export async function runCases(stagedFile, unitName, cases, label, timeoutMs = 6
     ...cases.map((c, i) => `test(${JSON.stringify(`${label} ${i + 1}: ${c.call}`)}, () => { assert.deepStrictEqual(${c.call}, ${c.expected}); });`)].join("\n");
   fs.writeFileSync(test, body);
   const r = await runCommand(`node --test ${path.basename(test)}`, dir, timeoutMs);
-  return { label, code: r.code, ran: cases.length, stdout: r.stdout, stderr: r.stderr };
+  return { label, code: r.code, timed_out: !!r.timed_out, ran: cases.length, stdout: r.stdout, stderr: r.stderr };
 }
 
 export function pickModel(stats, ledger, taskType, { candidatesUsed = new Set() } = {}) {
@@ -216,8 +219,8 @@ export async function runMicro(unit, holdoutCases, { model, apply = false, numCt
     const pc = purityCheck(code); if (!pc.pure) { record.purity = pc.hits; record.status = "impure"; throw 0; }
     const staged = path.join(runDir, "files", g.path); fs.mkdirSync(path.dirname(staged), { recursive: true }); fs.writeFileSync(staged, code);
     record.files.push({ path: g.path, bytes: Buffer.byteLength(code), traced: true, applied: false });
-    const vis = await runCases(staged, unit.name, unit.acceptance, "visible", timeoutMs); record.verify.visible_exit = vis.code; record.verify.visible = { ran: vis.ran, stderr: vis.stderr.slice(-2000) };
-    const hold = await runCases(staged, unit.name, holdoutCases || [], "holdout", timeoutMs); record.verify.holdout_exit = hold.code; record.verify.holdout = { ran: hold.ran, stderr: hold.stderr.slice(-2000) };
+    const caseMs = Math.min(timeoutMs, 20_000); const vis = await runCases(staged, unit.name, unit.acceptance, "visible", caseMs); record.verify.visible_exit = vis.code; record.verify.visible = { ran: vis.ran, stderr: vis.stderr.slice(-2000) };
+    const hold = await runCases(staged, unit.name, holdoutCases || [], "holdout", caseMs); record.verify.holdout_exit = hold.code; record.verify.holdout = { ran: hold.ran, stderr: hold.stderr.slice(-2000) };
     if (vis.code === 0 && hold.code === 0) { gate = "pass"; record.status = "verified"; if (apply) { if (!workspace) throw new Error("--apply needs RWANG_WORKSPACE_DIR"); const target = path.join(workspace, g.path); fs.mkdirSync(path.dirname(target), { recursive: true }); fs.writeFileSync(target, code); record.files[0].applied = true; record.status = "applied"; } }
     else record.status = "failed";
   } catch (e) { if (e !== 0) throw e; }

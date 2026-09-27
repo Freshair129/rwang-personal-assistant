@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { buildMessages, buildMicroPrompt, estimateTokens, extractCode, guardPath, parseFileBlocks, pickModel, purityCheck, runCases, runMicro, runPacket, SMOKE_TASKS, FORGE_VERSION } from "../forge.mjs";
@@ -98,6 +98,11 @@ try {
   // runCases with a bad call is a failure, not a crash
   const rc = await runCases(path.join(workspace, micro.path), "clamp01", [{ call: "clamp01(", expected: "0" }], "visible", 30_000);
   assert.notEqual(rc.code, 0);
+  // model code that never returns is killed (whole process tree) and reported as a timeout, never a hung gate
+  const loopFile = path.join(workspace, "apps/server/src/loop/spin.js"); await mkdir(path.dirname(loopFile), { recursive: true });
+  await writeFile(loopFile, "export function spin(){ while (true) {} }\n");
+  const t0 = Date.now(); const lp = await runCases(loopFile, "spin", [{ call: "spin()", expected: "0" }], "holdout", 3000);
+  assert.equal(lp.code, 124); assert.equal(lp.timed_out, true); assert.match(lp.stderr, /timed out/); assert.ok(Date.now() - t0 < 15_000, "the gate returns soon after its timeout");
 } finally { globalThis.fetch = realFetch; await rm(tmp, { recursive: true, force: true }); }
 
 // ---------- router (STD-005 R9) ----------
