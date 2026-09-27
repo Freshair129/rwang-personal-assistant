@@ -26,6 +26,13 @@ assert.equal(files.length, 3);
 assert.equal(files[0].path, "apps/server/src/modules/project-manager/application/scope-service.js");
 assert.equal(files[0].content, "// @trace implements FR-001-001\nexport function createScope() {}\n");
 
+// 1b. the drifted forms small models produce: path on the line before the fence, or as the first comment line
+const drifted = "path=apps/server/tests/a.test.js\n```javascript\n// @trace verifies AC-001-001-01\nok\n```\n\n```js\n// path: apps/server/tests/b.test.js\nalso ok\n```\n**path:** `apps/server/tests/c.test.js`\n```\nthird\n```";
+const driftedFiles = parseFileBlocks(drifted);
+assert.deepEqual(driftedFiles.map((f) => f.path), ["apps/server/tests/a.test.js", "apps/server/tests/b.test.js", "apps/server/tests/c.test.js"]);
+assert.equal(driftedFiles[1].content, "also ok\n", "a path comment line is stripped from the body");
+assert.equal(parseFileBlocks("```js\nno path here\n```").length, 0, "a block without a path is not a file");
+
 // 2. path guard: allowed prefix only; escapes and absolute paths refused; DESIGN_GAP is a signal, not a file
 assert.equal(guardPath(files[0].path, packet.allowed_paths).ok, true);
 assert.equal(guardPath("apps/server/tests/x.test.js", packet.allowed_paths).ok, false);

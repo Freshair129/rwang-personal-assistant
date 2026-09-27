@@ -36,10 +36,20 @@ export function estimateTokens(text) { return Math.ceil(String(text).length / 3.
 
 /** Parse the model's answer into files: ```path=<rel> ... ``` blocks (info string may carry a language first). */
 export function parseFileBlocks(text) {
+  // Accepted forms, in order of preference (small models drift between them):
+  //   ```path=a/b.js … ```                       the contract
+  //   path=a/b.js  (own line) then ```lang … ``` the path on the line before the fence
+  //   ```lang  then  // path: a/b.js  as the first line of the block
   const files = [];
-  const re = /```[^\n`]*?path=([^\s`]+)[^\n`]*\n([\s\S]*?)```/g;
+  const src = String(text).replace(/\r\n/g, "\n");
+  const re = /(?:^[ \t]*(?:\*\*)?(?:path|file)\s*[:=]\s*(?:\*\*)?\s*`?([^\s`*]+)`?(?:\*\*)?[ \t]*\n)?```([^\n]*)\n([\s\S]*?)```/gm;
   let m;
-  while ((m = re.exec(String(text)))) files.push({ path: m[1].trim().replace(/\\/g, "/"), content: m[2].replace(/\n$/, "") + "\n" });
+  while ((m = re.exec(src))) {
+    const info = m[2] || ""; let body = m[3]; let p = m[1] || (info.match(/path=([^\s`]+)/) || [])[1] || null;
+    if (!p) { const first = body.split("\n")[0] || ""; const fm = first.match(/^\s*(?:\/\/|#|--|<!--)\s*(?:path|file)\s*[:=]\s*([^\s*]+)/i); if (fm) { p = fm[1]; body = body.split("\n").slice(1).join("\n"); } }
+    if (!p) continue;
+    files.push({ path: p.trim().replace(/\\/g, "/"), content: body.replace(/\n$/, "") + "\n" });
+  }
   return files;
 }
 
@@ -60,6 +70,12 @@ export function buildMessages(packet) {
     ...(packet.guardrails || []).map((g) => `- ${g}`),
     `Allowed paths: ${(packet.allowed_paths || []).join(", ")}`,
     packet.output_contract || "Respond with files only, each as a fenced block with info string path=<relative path>.",
+    "Exact output form, nothing before or after the blocks:",
+    "```path=" + ((packet.allowed_paths || [])[0] || "relative/dir/") + "example.js",
+    "// @trace implements " + (packet.fr || "FR-000-000"),
+    "…complete file content…",
+    "```",
+    "Trace lines are code comments (// … in JavaScript), never bare text.",
   ].join("\n");
   const body = {
     requirement: packet.requirement,
