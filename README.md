@@ -308,3 +308,34 @@ installer แล้วติดตั้ง installer รุ่นก่อน�
 packaged app ต้อง rollback ด้วย installer รุ่นก่อนหน้า ไม่ควรถือว่ามี pnpm หรือ
 source tree อยู่ในเครื่อง ระบบยังไม่มี auto-update, auto-rollback หรือการ publish
 อัตโนมัติในขั้นตอนนี้
+
+## RWANG Forge (implementation packets for local models)
+
+Forge runs one *implementation packet* — one functional requirement × one layer, as
+defined by the target specification repository's STD-005 — against a local Ollama
+model, stages the files it returns, applies them to a workspace only with `--apply`,
+runs the packet's verification commands, and keeps a run record under the RWANG data
+directory (`forge/runs/<run id>/record.json`, plus the raw reply and staged files).
+
+Forge never reads the specification itself: everything the model may see is inside the
+packet, which the specification repository builds (`zuri-next`: `node tools/packet.mjs`).
+Files may land only under the packet's `allowed_paths`; a path that escapes the
+workspace is refused and recorded; verification runs only `node`/`npm`/`pnpm`/`npx`.
+
+```powershell
+$env:RWANG_WORKSPACE_DIR = "D:\workspace\zuri-next-app"   # the code repository the packets target
+$env:RWANG_FORGE_MODEL = "qwen2.5-coder:14b"               # any loaded Ollama model
+pnpm forge models
+pnpm forge estimate .\packets\PKT-FR-001-001-service.json  # fits --num-ctx?
+pnpm forge prompt   .\packets\PKT-FR-001-001-service.json  # the exact messages sent
+pnpm forge run      .\packets\PKT-FR-001-001-service.json  # staged only
+pnpm forge run      .\packets\PKT-FR-001-001-service.json --apply --num-ctx 16384
+pnpm forge queue    .\packets\FEAT-001\queue.json --apply   # stops at the first failed packet
+pnpm test:forge
+```
+
+Statuses: `staged` (files kept under DATA only) · `applied` · `verified` (verification
+passed) · `failed` · `design_gap` (the model reported a missing signature; amend the SDD)
+· `no_files` (the model ignored the output contract; try another model). The workflow
+around Forge — architect skeleton first, test packet before service packet, escalation —
+is the specification repository's PROC-001.
