@@ -169,10 +169,18 @@ export async function runCases(stagedFile, unitName, cases, label, timeoutMs = 6
 }
 
 export function pickModel(stats, ledger, taskType, { candidatesUsed = new Set() } = {}) {
-  const blacklist = new Set(ledger.filter((l) => l.blacklist).map((l) => l.model));
-  const by = {};
-  for (const s of stats) { if (s.task_type !== taskType || !s.model) continue; const b = (by[s.model] ??= { n: 0, pass: 0, lat: [] }); b.n++; if (s.gate === "pass") b.pass++; if (s.warm && typeof s.latency_s === "number") b.lat.push(s.latency_s); }
-  const rows = Object.entries(by).filter(([m]) => !blacklist.has(m)).map(([model, b]) => { const lat = b.lat.sort((a, c) => a - c); const med = lat.length ? lat[Math.floor(lat.length / 2)] : 10; const pass_rate = b.n ? b.pass / b.n : 0; return { model, n: b.n, pass_rate, median_warm_latency_s: med, score: pass_rate - 0.1 * (med / 10), candidate: b.n < 5 }; })
+  // The ledger is chronological: a model's standing is its latest smoke verdict (a later pass lifts an earlier blacklist).
+  const blacklist = new Set(), smoked = new Set();
+  for (const l of ledger) { if (!l.model) continue; if (l.blacklist) { blacklist.add(l.model); smoked.delete(l.model); } else if (l.kind === "pass" && l.task_type === "smoke") { blacklist.delete(l.model); smoked.add(l.model); } }
+  const by = {}, smoke = {};
+  for (const s of stats) {
+    if (!s.model) continue;
+    const bucket = s.task_type === "smoke" ? smoke : s.task_type === taskType ? by : null; if (!bucket) continue;
+    const b = (bucket[s.model] ??= { n: 0, pass: 0, lat: [] }); b.n++; if (s.gate === "pass") b.pass++; if (s.warm && typeof s.latency_s === "number") b.lat.push(s.latency_s);
+  }
+  // A model that passed the smoke suite but has no dispatch of this type yet is a candidate with n = 0; its smoke evidence stands in for pass rate and latency.
+  for (const m of smoked) if (!by[m]) { const sm = smoke[m]; by[m] = { n: 0, pass: 0, lat: sm?.lat || [], prior: sm?.n ? sm.pass / sm.n : 1 }; }
+  const rows = Object.entries(by).filter(([m]) => !blacklist.has(m)).map(([model, b]) => { const lat = b.lat.sort((a, c) => a - c); const med = lat.length ? lat[Math.floor(lat.length / 2)] : 10; const pass_rate = b.n ? b.pass / b.n : (b.prior ?? 0); return { model, n: b.n, pass_rate, median_warm_latency_s: med, score: pass_rate - 0.1 * (med / 10), candidate: b.n < 5 }; })
     .filter((r) => !(r.n >= 5 && r.pass_rate < 0.6)).filter((r) => !(r.candidate && candidatesUsed.has(r.model)));
   rows.sort((a, b) => b.score - a.score || a.model.localeCompare(b.model));
   if (!rows.length) return { model: null, reason: "no eligible local model" };

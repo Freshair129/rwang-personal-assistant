@@ -109,6 +109,14 @@ p = pickModel(stats, [], "parser", { candidatesUsed: new Set(["C"]) }); assert.e
 p = pickModel(stats, [{ model: "A", blacklist: true }], "parser", { candidatesUsed: new Set(["C"]) }); assert.equal(p.model, null, "B demoted (1/5), A blacklisted, C used → empty pool");
 p = pickModel([], [], "parser"); assert.equal(p.model, null);
 assert.equal(pickModel(stats, [], "parser").model, pickModel(stats, [], "parser").model, "deterministic");
+// a smoke-passed model with no dispatch of this type yet is a candidate (n = 0) whose smoke evidence stands in
+const smokeStats = [{ model: "D", task_type: "smoke", gate: "pass", warm: false, latency_s: 40 }, { model: "D", task_type: "smoke", gate: "pass", warm: true, latency_s: 2 }];
+const smokeLedger = [{ kind: "pass", model: "D", task_type: "smoke", blacklist: false }];
+p = pickModel(smokeStats, smokeLedger, "parser"); assert.equal(p.model, "D"); assert.equal(p.n, 0); assert.equal(p.median_warm_latency_s, 2); assert.match(p.reason, /candidate/);
+p = pickModel([...stats, ...smokeStats], smokeLedger, "parser", { candidatesUsed: new Set(["C", "D"]) }); assert.equal(p.model, "A", "used candidates step aside for the established model");
+// the ledger is chronological: a later smoke pass lifts an earlier blacklist, a later blacklist removes a pass
+assert.equal(pickModel(smokeStats, [{ kind: "fail", model: "D", task_type: "smoke", blacklist: true }, ...smokeLedger], "parser").model, "D");
+assert.equal(pickModel(smokeStats, [...smokeLedger, { kind: "fail", model: "D", task_type: "smoke", blacklist: true }], "parser").model, null);
 assert.equal(SMOKE_TASKS.length, 3);
 for (const t of SMOKE_TASKS) { assert.ok(t.acceptance.length >= 2); assert.ok(t.holdout.length >= 1); }
 console.log("forge: ok");
