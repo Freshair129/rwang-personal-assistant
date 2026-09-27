@@ -1,27 +1,29 @@
 #!/usr/bin/env node
-// RWANG Forge — run one implementation packet (STD-005 of the target specification repository)
-// against a local Ollama model, stage the files it returns, apply them to the workspace only when
-// asked, run the packet's verification commands, and keep an evidence record of the run.
-//
-// The packet is produced by the specification repository's own tool (zuri-next: tools/packet.mjs).
-// Forge never reads the specification itself: everything the model may see is inside the packet.
+// RWANG Forge — run implementation units of a specification repository (STD-005) against local Ollama
+// models: packets (one FR × one layer) and micro-tasks (one pure function with visible + holdout
+// acceptance). Stages what the model returns, applies it to the workspace only with --apply, runs the
+// deterministic gate, and keeps append-only records (runs, model_stats.jsonl, ledger.jsonl).
 //
 //   node forge.mjs models                                   list Ollama models
-//   node forge.mjs estimate <packet.json>                   token estimate and what the packet contains
-//   node forge.mjs prompt <packet.json>                     print the exact messages that would be sent
-//   node forge.mjs run <packet.json> [--model M] [--apply] [--num-ctx 16384] [--timeout 600]
+//   node forge.mjs smoke <model> [--json-mode]              onboarding gate: 3 fixed micro-tasks with known answers
+//   node forge.mjs pick --task-type <t>                     deterministic model choice from model_stats.jsonl
+//   node forge.mjs warm --model <m>                         pre-warm a model (keep_alive 30m)
+//   node forge.mjs estimate <unit.json>                     token estimate and what the unit contains
+//   node forge.mjs prompt <unit.json>                       the exact messages that would be sent
+//   node forge.mjs run <unit.json> [--model M] [--apply] [--num-ctx N] [--timeout S] [--json-mode] [--rework]
 //   node forge.mjs queue <queue.json> [--model M] [--apply] [--continue]
-//   node forge.mjs verify <packet.json>                     run only the verification commands
+//   node forge.mjs verify <packet.json>                     run only a packet's verification commands
 //
 // Environment (same names as the RWANG server; .env is loaded by the package script):
 //   OLLAMA_URL            default http://127.0.0.1:11434
-//   RWANG_WORKSPACE_DIR   the code repository the packet targets (required for --apply and verify)
-//   RWANG_DATA_DIR        where run records and staged files go (default %LOCALAPPDATA%\RWANG\data)
+//   RWANG_WORKSPACE_DIR   the code repository the units target (required for --apply and packet verify)
+//   RWANG_DATA_DIR        where records go (default %LOCALAPPDATA%\RWANG\data): forge/runs, forge/model_stats.jsonl, forge/ledger.jsonl
 //   RWANG_FORGE_MODEL     default model when --model is not given
 //
-// Boundaries: files may land only under the packet's allowed_paths inside the workspace; a path that
-// escapes the workspace or contains `..` is refused; verification runs only node/npm/pnpm/npx commands;
-// a run never deletes anything; without --apply nothing outside DATA_DIR is written.
+// Boundaries: files may land only under the unit's allowed_paths inside the workspace; a path that escapes or
+// contains `..` is refused; a micro-task's holdout cases are read from <unit>.holdout.json next to the unit and
+// never enter a prompt; verification runs only node/npm/pnpm/npx commands; nothing is ever deleted; without
+// --apply nothing outside DATA_DIR is written; the gate is deterministic — no model judges a result.
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -29,17 +31,15 @@ import crypto from "node:crypto";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-export const FORGE_VERSION = "0.1.0";
+export const FORGE_VERSION = "0.2.0";
 const VERIFY_ALLOW = new Set(["node", "npm", "pnpm", "npx"]);
+const SPECIAL_TOKEN = /<unused\d+>|<\|[^|>]{1,40}\|>|<pad>|<\/?s>/;
+const IMPURE = [/^\s*import\s/m, /\brequire\s*\(/, /\bprocess\./, /\bfs\./, /\bfetch\s*\(/, /\bglobalThis\b/, /\bDate\.now\b/, /\bnew Date\b/, /\bMath\.random\b/, /\bsetTimeout\b/, /\bconsole\./];
 
 export function estimateTokens(text) { return Math.ceil(String(text).length / 3.6); }
 
-/** Parse the model's answer into files: ```path=<rel> ... ``` blocks (info string may carry a language first). */
+/** Parse the model's answer into files: ```path=<rel> … ``` blocks; also the drifted forms small models produce. */
 export function parseFileBlocks(text) {
-  // Accepted forms, in order of preference (small models drift between them):
-  //   ```path=a/b.js … ```                       the contract
-  //   path=a/b.js  (own line) then ```lang … ``` the path on the line before the fence
-  //   ```lang  then  // path: a/b.js  as the first line of the block
   const files = [];
   const src = String(text).replace(/\r\n/g, "\n");
   const re = /(?:^[ \t]*(?:\*\*)?(?:path|file)\s*[:=]\s*(?:\*\*)?\s*`?([^\s`*]+)`?(?:\*\*)?[ \t]*\n)?```([^\n]*)\n([\s\S]*?)```/gm;
@@ -53,16 +53,33 @@ export function parseFileBlocks(text) {
   return files;
 }
 
+/** Extract one code body from a micro-task answer: JSON {code} first, then <think>-stripped fenced block. */
+export function extractCode(text) {
+  const raw = String(text);
+  try { const j = JSON.parse(raw); if (j && typeof j.code === "string" && j.code.trim()) return { code: j.code.replace(/\n?$/, "\n"), via: "json" }; } catch {}
+  const stripped = raw.replace(/<think>[\s\S]*?<\/think>/g, "");
+  const fence = stripped.match(/```(?:js|javascript|mjs|ts|typescript)?\s*\n([\s\S]*?)```/);
+  if (fence && fence[1].trim()) return { code: fence[1].replace(/\n?$/, "\n"), via: "fence" };
+  const bare = stripped.trim();
+  if (/^(export\s+)?function\s+\w+\s*\(/m.test(bare) && !/```/.test(bare)) return { code: bare + "\n", via: "bare" };
+  return null;
+}
+
+/** STD-005 E2 post-check: the returned code must be pure. */
+export function purityCheck(code) { const hits = IMPURE.filter((re) => re.test(code)).map((re) => re.source); return { pure: hits.length === 0, hits }; }
+
 /** A relative path is accepted only inside one of the allowed prefixes and never escapes. */
 export function guardPath(rel, allowed) {
   const norm = String(rel).replace(/\\/g, "/").replace(/^\.\//, "");
   if (!norm || path.isAbsolute(norm) || /^[A-Za-z]:/.test(norm) || norm.split("/").includes("..")) return { ok: false, reason: "path escapes the workspace" };
   if (norm === "DESIGN_GAP.md") return { ok: true, path: norm, gap: true };
-  const hit = (allowed || []).some((p) => norm.startsWith(String(p).replace(/\\/g, "/").replace(/^\.\//, "")));
+  const hit = (allowed || []).some((p) => { const a = String(p).replace(/\\/g, "/").replace(/^\.\//, ""); return norm === a || norm.startsWith(a.endsWith("/") ? a : a + "/") || (a.includes(".") && norm === a); });
   return hit ? { ok: true, path: norm } : { ok: false, reason: `not under an allowed path (${(allowed || []).join(", ")})` };
 }
 
+/** Packet prompt (FR × layer): the packet as data plus guard rails. */
 export function buildMessages(packet) {
+  if (packet.kind === "micro") return [{ role: "user", content: buildMicroPrompt(packet) }];
   const system = [
     "You are a coding worker executing one implementation packet. You see nothing but this packet.",
     `Task for layer "${packet.layer}": ${packet.task}`,
@@ -77,40 +94,53 @@ export function buildMessages(packet) {
     "```",
     "Trace lines are code comments (// … in JavaScript), never bare text.",
   ].join("\n");
-  const body = {
-    requirement: packet.requirement,
-    feature: packet.feature,
-    design: packet.design,
-    contracts: packet.contracts,
-    rules: packet.rules,
-    tests: packet.tests,
-    existing_code: (packet.code || []).map((c) => ({ path: c.path, content: c.content })),
-  };
-  const user = `PACKET ${packet.id}\n\n${JSON.stringify(body, null, 1)}\n\nProduce the files now.`;
-  return [{ role: "system", content: system }, { role: "user", content: user }];
+  const body = { requirement: packet.requirement, feature: packet.feature, design: packet.design, contracts: packet.contracts, rules: packet.rules, tests: packet.tests, existing_code: (packet.code || []).map((c) => ({ path: c.path, content: c.content })) };
+  return [{ role: "system", content: system }, { role: "user", content: `PACKET ${packet.id}\n\n${JSON.stringify(body, null, 1)}\n\nProduce the files now.` }];
 }
 
-function dataDir() {
-  if (process.env.RWANG_DATA_DIR) return process.env.RWANG_DATA_DIR;
-  return process.platform === "win32" ? path.join(process.env.LOCALAPPDATA || os.homedir(), "RWANG", "data") : path.join(os.homedir(), ".rwang", "data");
+/** Micro-task prompt, template v2: plain instruction, one action, exact signature, ≤ 6 rules, visible acceptance only. */
+export function buildMicroPrompt(unit, { jsonMode = false, pastMistakes = [] } = {}) {
+  const lines = [
+    "You are a focused code generator. ONE task. Pure function, no imports, no I/O, no global state.",
+    jsonMode ? 'Respond as JSON: {"code": "<full file contents>"}' : "Output ONLY one ```js block with the complete file. No prose.",
+    "",
+    `Implement EXACTLY in ${unit.path}:`,
+    `export function ${unit.signature}`,
+    "",
+    "Rules:",
+    `- First line of the file: ${unit.trace || "// @trace implements " + unit.fr}`,
+    ...(unit.rules || []).slice(0, 6).map((r) => `- ${r}`),
+    "",
+    "Acceptance: " + (unit.acceptance || []).map((c) => `${c.call} -> ${c.expected}`).join(". ") + ".",
+  ];
+  if (pastMistakes.length) lines.push("", "PAST MISTAKES (do not repeat):", ...pastMistakes.slice(0, 3).map((m) => `- ${m}`));
+  return lines.join("\n");
 }
+
+function dataDir() { if (process.env.RWANG_DATA_DIR) return process.env.RWANG_DATA_DIR; return process.platform === "win32" ? path.join(process.env.LOCALAPPDATA || os.homedir(), "RWANG", "data") : path.join(os.homedir(), ".rwang", "data"); }
 const ollamaUrl = () => (process.env.OLLAMA_URL || "http://127.0.0.1:11434").replace(/\/$/, "");
+const appendJsonl = (file, obj) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.appendFileSync(file, JSON.stringify(obj) + "\n"); };
+const readJsonl = (file) => (fs.existsSync(file) ? fs.readFileSync(file, "utf8").split("\n").filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean) : []);
 
-async function listModels() {
-  const r = await fetch(`${ollamaUrl()}/api/tags`);
-  if (!r.ok) throw new Error(`Ollama ${r.status}: ${await r.text()}`);
-  return ((await r.json()).models || []).map((m) => ({ name: m.name, size: m.size, family: m.details?.family, params: m.details?.parameter_size, quant: m.details?.quantization_level }));
-}
+async function listModels() { const r = await fetch(`${ollamaUrl()}/api/tags`); if (!r.ok) throw new Error(`Ollama ${r.status}: ${await r.text()}`); return ((await r.json()).models || []).map((m) => ({ name: m.name, size: m.size, family: m.details?.family, params: m.details?.parameter_size, quant: m.details?.quantization_level })); }
 
-async function chat({ model, messages, numCtx, timeoutMs }) {
+// Thinking models spend the whole num_predict budget in `message.thinking` and return an empty answer
+// (observed: qwen3.5:9b, eval_count 2048, content ""). Forge therefore asks for think:false by default and
+// retries without the field when the runtime rejects it for a model that cannot think.
+async function chat({ model, messages, numCtx, numPredict = 2048, timeoutMs, jsonMode = false, think = false }) {
   const ac = new AbortController(); const timer = setTimeout(() => ac.abort(), timeoutMs);
   try {
-    const r = await fetch(`${ollamaUrl()}/api/chat`, { method: "POST", headers: { "content-type": "application/json" }, signal: ac.signal,
-      body: JSON.stringify({ model, messages, stream: false, keep_alive: "10m", options: { num_ctx: numCtx, temperature: 0.1 } }) });
-    if (!r.ok) throw new Error(`Ollama ${r.status}: ${await r.text()}`);
-    const j = await r.json();
-    if (j.error) throw new Error(j.error);
-    return { text: j.message?.content || "", eval_count: j.eval_count, prompt_eval_count: j.prompt_eval_count, total_duration_ms: Math.round((j.total_duration || 0) / 1e6) };
+    const send = async (withThink) => {
+      const body = { model, messages, stream: false, keep_alive: "30m", options: { num_ctx: numCtx, num_predict: numPredict, temperature: 0.1 } };
+      if (jsonMode) body.format = { type: "object", properties: { code: { type: "string" } }, required: ["code"] };
+      if (withThink) body.think = think;
+      const r = await fetch(`${ollamaUrl()}/api/chat`, { method: "POST", headers: { "content-type": "application/json" }, signal: ac.signal, body: JSON.stringify(body) });
+      const text = await r.text();
+      if (!r.ok) { if (withThink && r.status === 400 && /think/i.test(text)) return send(false); throw new Error(`Ollama ${r.status}: ${text}`); }
+      return JSON.parse(text);
+    };
+    const j = await send(true); if (j.error) throw new Error(j.error);
+    return { text: j.message?.content || "", thinking_chars: (j.message?.thinking || "").length, eval_count: j.eval_count, prompt_eval_count: j.prompt_eval_count, total_duration_ms: Math.round((j.total_duration || 0) / 1e6), load_duration_ms: Math.round((j.load_duration || 0) / 1e6), done_reason: j.done_reason };
   } finally { clearTimeout(timer); }
 }
 
@@ -118,18 +148,75 @@ function runCommand(cmd, cwd, timeoutMs) {
   return new Promise((resolve) => {
     const [exe, ...args] = cmd.trim().split(/\s+/);
     if (!VERIFY_ALLOW.has(exe.replace(/\.(exe|cmd)$/i, ""))) return resolve({ cmd, code: -1, stdout: "", stderr: `refused: "${exe}" is not an allowed verification executable (${[...VERIFY_ALLOW].join(", ")})` });
-    const child = spawn(exe, args, { cwd, shell: process.platform === "win32", env: process.env, windowsHide: true });
+    const child = process.platform === "win32" ? spawn(cmd.trim(), { cwd, shell: true, env: process.env, windowsHide: true }) : spawn(exe, args, { cwd, env: process.env });
     let stdout = "", stderr = ""; const t = setTimeout(() => child.kill(), timeoutMs);
     child.stdout.on("data", (d) => (stdout += d)); child.stderr.on("data", (d) => (stderr += d));
     child.on("close", (code) => { clearTimeout(t); resolve({ cmd, code, stdout: stdout.slice(-8000), stderr: stderr.slice(-8000) }); });
     child.on("error", (e) => { clearTimeout(t); resolve({ cmd, code: -1, stdout, stderr: String(e) }); });
   });
 }
+async function verifyPacket(packet, workspace, timeoutMs) { const results = []; for (const cmd of packet.verify || []) results.push(await runCommand(cmd, workspace, timeoutMs)); return results; }
 
-async function verify(packet, workspace, timeoutMs) {
-  const results = [];
-  for (const cmd of packet.verify || []) results.push(await runCommand(cmd, workspace, timeoutMs));
-  return results;
+/** Run acceptance cases against a staged micro-task file: a generated node:test file that imports it. Deterministic; the calls are the Architect's. */
+export async function runCases(stagedFile, unitName, cases, label, timeoutMs = 60_000) {
+  if (!cases?.length) return { label, code: 0, ran: 0, stdout: "", stderr: "no cases" };
+  const dir = path.dirname(stagedFile); const test = path.join(dir, `${path.basename(stagedFile, path.extname(stagedFile))}.${label}.test.mjs`);
+  const body = [`import { test } from 'node:test';`, `import assert from 'node:assert/strict';`, `import * as m from './${path.basename(stagedFile)}';`, `const ${unitName} = m.${unitName} ?? m.default;`,
+    ...cases.map((c, i) => `test(${JSON.stringify(`${label} ${i + 1}: ${c.call}`)}, () => { assert.deepStrictEqual(${c.call}, ${c.expected}); });`)].join("\n");
+  fs.writeFileSync(test, body);
+  const r = await runCommand(`node --test ${path.basename(test)}`, dir, timeoutMs);
+  return { label, code: r.code, ran: cases.length, stdout: r.stdout, stderr: r.stderr };
+}
+
+export function pickModel(stats, ledger, taskType, { candidatesUsed = new Set() } = {}) {
+  const blacklist = new Set(ledger.filter((l) => l.blacklist).map((l) => l.model));
+  const by = {};
+  for (const s of stats) { if (s.task_type !== taskType || !s.model) continue; const b = (by[s.model] ??= { n: 0, pass: 0, lat: [] }); b.n++; if (s.gate === "pass") b.pass++; if (s.warm && typeof s.latency_s === "number") b.lat.push(s.latency_s); }
+  const rows = Object.entries(by).filter(([m]) => !blacklist.has(m)).map(([model, b]) => { const lat = b.lat.sort((a, c) => a - c); const med = lat.length ? lat[Math.floor(lat.length / 2)] : 10; const pass_rate = b.n ? b.pass / b.n : 0; return { model, n: b.n, pass_rate, median_warm_latency_s: med, score: pass_rate - 0.1 * (med / 10), candidate: b.n < 5 }; })
+    .filter((r) => !(r.n >= 5 && r.pass_rate < 0.6)).filter((r) => !(r.candidate && candidatesUsed.has(r.model)));
+  rows.sort((a, b) => b.score - a.score || a.model.localeCompare(b.model));
+  if (!rows.length) return { model: null, reason: "no eligible local model" };
+  const best = rows[0]; return { ...best, reason: best.candidate ? "candidate (n<5): one dispatch per batch" : "best score, n>=5" };
+}
+
+export const SMOKE_TASKS = [
+  { id: "smoke-clamp01", task_type: "smoke", name: "clamp01", signature: "clamp01(x)", path: "smoke/clamp01.js", rules: ["return x clamped to the closed range 0..1", "non-number or NaN input returns 0"], acceptance: [{ call: "clamp01(-1)", expected: "0" }, { call: "clamp01(0.5)", expected: "0.5" }, { call: "clamp01(2)", expected: "1" }], holdout: [{ call: "clamp01(NaN)", expected: "0" }, { call: "clamp01(1)", expected: "1" }] },
+  { id: "smoke-parseTimecode", task_type: "smoke", name: "parseTimecode", signature: "parseTimecode(s)", path: "smoke/parse-timecode.js", rules: ["format is mm:ss.mmm with two-digit minutes and seconds and three-digit milliseconds", "return total seconds as a number", "any other input returns -1"], acceptance: [{ call: "parseTimecode('01:02.500')", expected: "62.5" }, { call: "parseTimecode('00:00.000')", expected: "0" }, { call: "parseTimecode('bad')", expected: "-1" }], holdout: [{ call: "parseTimecode('10:00.250')", expected: "600.25" }, { call: "parseTimecode('1:2.5')", expected: "-1" }] },
+  { id: "smoke-metronomeTicks", task_type: "smoke", name: "metronomeTicks", signature: "metronomeTicks(bpm, beatsPerBar, durationSec)", path: "smoke/metronome-ticks.js", rules: ["return an array of ticks {t, accent} for every beat with t < durationSec", "t is the beat time in seconds starting at 0, rounded to 3 decimals", "accent is true on the first beat of every bar", "bpm <= 0, beatsPerBar <= 0 or durationSec <= 0 returns []"], acceptance: [{ call: "metronomeTicks(120, 4, 2)", expected: "[{t:0,accent:true},{t:0.5,accent:false},{t:1,accent:false},{t:1.5,accent:false}]" }, { call: "metronomeTicks(0, 4, 2)", expected: "[]" }], holdout: [{ call: "metronomeTicks(60, 2, 3)", expected: "[{t:0,accent:true},{t:1,accent:false},{t:2,accent:true}]" }] },
+];
+
+export async function runMicro(unit, holdoutCases, { model, apply = false, numCtx = 8192, timeoutMs = 300_000, workspace, out, jsonMode = false, reworkRound = 0, warm = null, pastMistakes = [] }) {
+  if (!model) throw new Error("no model: pass --model or set RWANG_FORGE_MODEL");
+  const runId = `${unit.id}-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+  const runDir = path.join(out, "forge", "runs", runId); fs.mkdirSync(path.join(runDir, "files"), { recursive: true });
+  const prompt = buildMicroPrompt(unit, { jsonMode, pastMistakes });
+  const messages = [{ role: "user", content: prompt }];
+  const record = { forge: FORGE_VERSION, kind: "micro", run_id: runId, unit: unit.id, fr: unit.fr, task_type: unit.task_type || "pure-function", model, num_ctx: numCtx, json_mode: jsonMode, rework_round: reworkRound, prompt_hash: crypto.createHash("sha256").update(prompt).digest("hex").slice(0, 16), prompt_tokens_estimate: estimateTokens(prompt), started_at: new Date().toISOString(), apply, files: [], refused: [], verify: { visible_exit: null, holdout_exit: null }, extracted_via: null, status: "started" };
+  const t0 = Date.now();
+  const reply = await chat({ model, messages, numCtx, numPredict: 4096, timeoutMs, jsonMode });
+  const latency_s = (Date.now() - t0) / 1000;
+  fs.writeFileSync(path.join(runDir, "prompt.txt"), prompt); fs.writeFileSync(path.join(runDir, "reply.md"), reply.text);
+  Object.assign(record, { eval_count: reply.eval_count, prompt_eval_count: reply.prompt_eval_count, thinking_chars: reply.thinking_chars, model_ms: reply.total_duration_ms, load_ms: reply.load_duration_ms, done_reason: reply.done_reason, latency_s, warm: warm ?? (reply.load_duration_ms != null ? reply.load_duration_ms < 2000 : null) });
+  let gate = "fail";
+  try {
+    if (SPECIAL_TOKEN.test(reply.text)) { record.status = "garbage"; throw 0; }
+    if ((reply.eval_count ?? 30) < 30 && !reply.text.trim()) { record.status = "empty"; throw 0; }
+    const ex = extractCode(reply.text); if (!ex) { record.status = "no_files"; throw 0; }
+    record.extracted_via = ex.via;
+    let code = ex.code; if (!/@trace\s+implements/.test(code) && unit.trace) code = unit.trace + "\n" + code;
+    const g = guardPath(unit.path, unit.allowed_paths || [unit.path]); if (!g.ok) { record.refused.push({ path: unit.path, reason: g.reason }); record.status = "refused"; throw 0; }
+    const pc = purityCheck(code); if (!pc.pure) { record.purity = pc.hits; record.status = "impure"; throw 0; }
+    const staged = path.join(runDir, "files", g.path); fs.mkdirSync(path.dirname(staged), { recursive: true }); fs.writeFileSync(staged, code);
+    record.files.push({ path: g.path, bytes: Buffer.byteLength(code), traced: true, applied: false });
+    const vis = await runCases(staged, unit.name, unit.acceptance, "visible", timeoutMs); record.verify.visible_exit = vis.code; record.verify.visible = { ran: vis.ran, stderr: vis.stderr.slice(-2000) };
+    const hold = await runCases(staged, unit.name, holdoutCases || [], "holdout", timeoutMs); record.verify.holdout_exit = hold.code; record.verify.holdout = { ran: hold.ran, stderr: hold.stderr.slice(-2000) };
+    if (vis.code === 0 && hold.code === 0) { gate = "pass"; record.status = "verified"; if (apply) { if (!workspace) throw new Error("--apply needs RWANG_WORKSPACE_DIR"); const target = path.join(workspace, g.path); fs.mkdirSync(path.dirname(target), { recursive: true }); fs.writeFileSync(target, code); record.files[0].applied = true; record.status = "applied"; } }
+    else record.status = "failed";
+  } catch (e) { if (e !== 0) throw e; }
+  record.gate = gate; record.finished_at = new Date().toISOString();
+  fs.writeFileSync(path.join(runDir, "record.json"), JSON.stringify(record, null, 1) + "\n");
+  appendJsonl(path.join(out, "forge", "model_stats.jsonl"), { run_id: runId, unit: unit.id, task_type: record.task_type, model, gate, status: record.status, verify: record.verify.visible_exit == null ? null : { visible_exit: record.verify.visible_exit, holdout_exit: record.verify.holdout_exit }, eval_count: reply.eval_count, latency_s: +latency_s.toFixed(1), warm: record.warm, rework_round: reworkRound, ts: record.finished_at });
+  return { record, runDir };
 }
 
 export async function runPacket(packet, { model, apply = false, numCtx = 16384, timeoutMs = 600_000, workspace, out }) {
@@ -138,8 +225,8 @@ export async function runPacket(packet, { model, apply = false, numCtx = 16384, 
   const runDir = path.join(out, "forge", "runs", runId); fs.mkdirSync(path.join(runDir, "files"), { recursive: true });
   const messages = buildMessages(packet);
   const promptHash = crypto.createHash("sha256").update(JSON.stringify(messages)).digest("hex").slice(0, 16);
-  const record = { forge: FORGE_VERSION, run_id: runId, packet: packet.id, fr: packet.fr, layer: packet.layer, model, num_ctx: numCtx, prompt_hash: promptHash, prompt_tokens_estimate: estimateTokens(JSON.stringify(messages)), started_at: new Date().toISOString(), apply, files: [], refused: [], design_gap: null, verify: [], status: "started" };
-  const reply = await chat({ model, messages, numCtx, timeoutMs });
+  const record = { forge: FORGE_VERSION, kind: "packet", run_id: runId, packet: packet.id, fr: packet.fr, layer: packet.layer, model, num_ctx: numCtx, prompt_hash: promptHash, prompt_tokens_estimate: estimateTokens(JSON.stringify(messages)), started_at: new Date().toISOString(), apply, files: [], refused: [], design_gap: null, verify: [], status: "started" };
+  const reply = await chat({ model, messages, numCtx, numPredict: 4096, timeoutMs });
   fs.writeFileSync(path.join(runDir, "reply.md"), reply.text);
   Object.assign(record, { eval_count: reply.eval_count, prompt_eval_count: reply.prompt_eval_count, model_ms: reply.total_duration_ms });
   for (const f of parseFileBlocks(reply.text)) {
@@ -153,11 +240,25 @@ export async function runPacket(packet, { model, apply = false, numCtx = 16384, 
   }
   if (record.design_gap) record.status = "design_gap";
   else if (!record.files.length) record.status = "no_files";
-  else if (apply && workspace && (packet.verify || []).length) { record.verify = await verify(packet, workspace, timeoutMs); record.status = record.verify.every((v) => v.code === 0) ? "verified" : "failed"; }
+  else if (apply && workspace && (packet.verify || []).length) { record.verify = await verifyPacket(packet, workspace, timeoutMs); record.status = record.verify.every((v) => v.code === 0) ? "verified" : "failed"; }
   else record.status = apply ? "applied" : "staged";
   record.finished_at = new Date().toISOString();
   fs.writeFileSync(path.join(runDir, "record.json"), JSON.stringify(record, null, 1) + "\n");
+  appendJsonl(path.join(out, "forge", "model_stats.jsonl"), { run_id: runId, unit: packet.id, task_type: `packet:${packet.layer}`, model, gate: record.status === "verified" ? "pass" : record.status === "staged" || record.status === "applied" ? "unverified" : "fail", status: record.status, eval_count: reply.eval_count, latency_s: +(reply.total_duration_ms / 1000).toFixed(1), ts: record.finished_at });
   return { record, runDir };
+}
+
+async function smoke(model, { out, numCtx, timeoutMs, jsonMode }) {
+  const results = []; let ok = true;
+  for (const [i, task] of SMOKE_TASKS.entries()) {
+    const unit = { ...task, kind: "micro", fr: "SMOKE", allowed_paths: [task.path], trace: "// @trace smoke" };
+    const { record } = await runMicro(unit, task.holdout, { model, out, numCtx, timeoutMs, jsonMode, warm: i > 0 });
+    const pass = record.gate === "pass"; ok = ok && pass;
+    results.push({ task: task.id, status: record.status, gate: record.gate, eval_count: record.eval_count, latency_s: record.latency_s, load_ms: record.load_ms, extracted_via: record.extracted_via, run: record.run_id });
+  }
+  if (!ok) appendJsonl(path.join(out, "forge", "ledger.jsonl"), { ts: new Date().toISOString(), kind: "fail", model, task_type: "smoke", severity: "critical", lesson: `failed onboarding smoke: ${results.filter((r) => r.gate !== "pass").map((r) => `${r.task}=${r.status}`).join(", ")}`, blacklist: true });
+  else appendJsonl(path.join(out, "forge", "ledger.jsonl"), { ts: new Date().toISOString(), kind: "pass", model, task_type: "smoke", severity: "info", lesson: `passed onboarding smoke (${results.map((r) => `${r.task} ${r.latency_s}s`).join(", ")})`, blacklist: false });
+  return { model, ok, results };
 }
 
 // ---- CLI ----
@@ -166,29 +267,46 @@ async function main(argv) {
   const opt = (n, d) => { const i = argv.indexOf(n); return i >= 0 && argv[i + 1] ? argv[i + 1] : d; };
   const flag = (n) => argv.includes(n);
   const model = opt("--model", process.env.RWANG_FORGE_MODEL || "");
-  const numCtx = Number(opt("--num-ctx", 16384)); const timeoutMs = Number(opt("--timeout", 600)) * 1000;
+  const timeoutMs = Number(opt("--timeout", 600)) * 1000; const jsonMode = flag("--json-mode");
   const workspace = process.env.RWANG_WORKSPACE_DIR ? path.resolve(process.env.RWANG_WORKSPACE_DIR) : null;
   const out = dataDir();
-  const loadPacket = (f) => JSON.parse(fs.readFileSync(f, "utf8"));
+  const loadUnit = (f) => JSON.parse(fs.readFileSync(f, "utf8"));
+  const holdoutFor = (f) => { const h = f.replace(/\.json$/, ".holdout.json"); return fs.existsSync(h) ? JSON.parse(fs.readFileSync(h, "utf8")).cases || [] : []; };
+  const pastMistakes = () => readJsonl(path.join(out, "forge", "ledger.jsonl")).filter((l) => l.blacklist || l.kind === "fail").slice(-3).map((l) => `${l.model}: ${l.lesson}`);
   if (cmd === "models") { for (const m of await listModels()) console.log(`${m.name}\t${m.params || ""}\t${m.quant || ""}\t${(m.size / 1e9).toFixed(1)} GB`); return 0; }
-  if (cmd === "estimate" && arg) { const p = loadPacket(arg); const msgs = buildMessages(p); console.log(JSON.stringify({ packet: p.id, layer: p.layer, acceptance: p.requirement?.acceptance?.length || 0, tests: p.tests?.length || 0, contracts: p.contracts?.length || 0, rules: p.rules?.length || 0, code_files: p.code?.length || 0, allowed_paths: p.allowed_paths, prompt_tokens_estimate: estimateTokens(JSON.stringify(msgs)), fits_num_ctx: estimateTokens(JSON.stringify(msgs)) < numCtx * 0.75 }, null, 1)); return 0; }
-  if (cmd === "prompt" && arg) { for (const m of buildMessages(loadPacket(arg))) console.log(`--- ${m.role} ---\n${m.content}\n`); return 0; }
-  if (cmd === "verify" && arg) { if (!workspace) throw new Error("RWANG_WORKSPACE_DIR is required"); const r = await verify(loadPacket(arg), workspace, timeoutMs); for (const v of r) console.log(`${v.code === 0 ? "PASS" : "FAIL"} ${v.cmd}\n${v.stderr || v.stdout}`); return r.every((v) => v.code === 0) ? 0 : 1; }
-  if (cmd === "run" && arg) { const { record, runDir } = await runPacket(loadPacket(arg), { model, apply: flag("--apply"), numCtx, timeoutMs, workspace, out }); console.log(`${record.status}  ${record.packet}  model=${record.model}  files=${record.files.length} refused=${record.refused.length}${record.design_gap ? " DESIGN_GAP" : ""}\n${runDir}`); for (const v of record.verify) console.log(`  ${v.code === 0 ? "PASS" : "FAIL"} ${v.cmd}`); return record.status === "verified" || record.status === "staged" || record.status === "applied" ? 0 : 1; }
+  if (cmd === "warm") { const m = opt("--model", model); if (!m) throw new Error("--model required"); const t0 = Date.now(); await chat({ model: m, messages: [{ role: "user", content: "ok" }], numCtx: 8192, numPredict: 5, timeoutMs }); console.log(`${m} warm in ${((Date.now() - t0) / 1000).toFixed(1)}s`); return 0; }
+  if (cmd === "smoke") { const m = arg || model; if (!m) throw new Error("smoke <model>"); const r = await smoke(m, { out, numCtx: Number(opt("--num-ctx", 8192)), timeoutMs, jsonMode }); console.log(JSON.stringify(r, null, 1)); return r.ok ? 0 : 1; }
+  if (cmd === "pick") { const r = pickModel(readJsonl(path.join(out, "forge", "model_stats.jsonl")), readJsonl(path.join(out, "forge", "ledger.jsonl")), opt("--task-type", "pure-function")); console.log(JSON.stringify(r)); return r.model ? 0 : 2; }
+  if (cmd === "estimate" && arg) { const u = loadUnit(arg); const msgs = buildMessages(u); const est = estimateTokens(msgs.map((m) => m.content).join("\n")); const numCtx = Number(opt("--num-ctx", u.kind === "micro" ? 8192 : 16384)); console.log(JSON.stringify(u.kind === "micro" ? { unit: u.id, kind: "micro", task_type: u.task_type, visible_cases: u.acceptance?.length || 0, eligibility: u.eligibility, prompt_tokens_estimate: est, fits_budget: est <= (u.budget_tokens || 600) } : { packet: u.id, layer: u.layer, acceptance: u.requirement?.acceptance?.length || 0, tests: u.tests?.length || 0, contracts: u.contracts?.length || 0, rules: u.rules?.length || 0, code_files: u.code?.length || 0, allowed_paths: u.allowed_paths, prompt_tokens_estimate: est, fits_num_ctx: est < numCtx * 0.75 }, null, 1)); return 0; }
+  if (cmd === "prompt" && arg) { for (const m of buildMessages(loadUnit(arg))) console.log(`--- ${m.role} ---\n${m.content}\n`); return 0; }
+  if (cmd === "verify" && arg) { if (!workspace) throw new Error("RWANG_WORKSPACE_DIR is required"); const r = await verifyPacket(loadUnit(arg), workspace, timeoutMs); for (const v of r) console.log(`${v.code === 0 ? "PASS" : "FAIL"} ${v.cmd}\n${v.stderr || v.stdout}`); return r.every((v) => v.code === 0) ? 0 : 1; }
+  const runOne = async (file) => {
+    const u = loadUnit(file);
+    if (u.kind === "micro") {
+      if (u.eligibility && !u.eligibility.eligible) return { record: { status: "not_eligible", unit: u.id, model, files: [], refused: [], eligibility: u.eligibility }, runDir: "" };
+      let r = await runMicro(u, holdoutFor(file), { model, apply: flag("--apply"), numCtx: Number(opt("--num-ctx", 8192)), timeoutMs, workspace, out, jsonMode, pastMistakes: pastMistakes() });
+      if (r.record.gate !== "pass" && flag("--rework")) { const next = pickModel(readJsonl(path.join(out, "forge", "model_stats.jsonl")), readJsonl(path.join(out, "forge", "ledger.jsonl")), u.task_type || "pure-function", { candidatesUsed: new Set([model]) }); const alt = next.model && next.model !== model ? next.model : null; if (alt) r = await runMicro(u, holdoutFor(file), { model: alt, apply: flag("--apply"), numCtx: Number(opt("--num-ctx", 8192)), timeoutMs, workspace, out, jsonMode, reworkRound: 1, pastMistakes: pastMistakes() }); }
+      return r;
+    }
+    return runPacket(u, { model, apply: flag("--apply"), numCtx: Number(opt("--num-ctx", 16384)), timeoutMs, workspace, out });
+  };
+  const line = (record, runDir) => `${String(record.status).padEnd(12)} ${record.unit || record.packet}  model=${record.model}  files=${record.files.length}${record.refused.length ? ` refused=${record.refused.length}` : ""}${record.verify && record.verify.visible_exit != null ? `  visible=${record.verify.visible_exit === 0 ? "pass" : "fail"} holdout=${record.verify.holdout_exit === 0 ? "pass" : "fail"}` : ""}${record.design_gap ? " DESIGN_GAP" : ""}${record.purity ? ` impure:${record.purity.join("|")}` : ""}${runDir ? `\n${runDir}` : ""}`;
+  const OK = new Set(["verified", "staged", "applied"]);
+  if (cmd === "run" && arg) { const { record, runDir } = await runOne(arg); console.log(line(record, runDir)); for (const v of record.verify || []) if (v.cmd) console.log(`  ${v.code === 0 ? "PASS" : "FAIL"} ${v.cmd}`); return OK.has(record.status) ? 0 : 1; }
   if (cmd === "queue" && arg) {
     const q = JSON.parse(fs.readFileSync(arg, "utf8")); const base = path.dirname(path.resolve(arg)); let failed = 0;
     for (const item of q.packets || []) {
       const file = path.isAbsolute(item.file) ? item.file : fs.existsSync(path.resolve(item.file)) ? path.resolve(item.file) : path.join(base, path.basename(item.file));
-      const { record } = await runPacket(loadPacket(file), { model, apply: flag("--apply"), numCtx, timeoutMs, workspace, out });
-      console.log(`${record.status.padEnd(11)} ${record.packet}  files=${record.files.length}${record.refused.length ? ` refused=${record.refused.length}` : ""}`);
-      if (!["verified", "staged", "applied"].includes(record.status)) { failed++; if (!flag("--continue")) { console.log("stopped on the first failed packet (STD-005 R5); pass --continue to keep going"); break; } }
+      const { record } = await runOne(file); console.log(line(record, ""));
+      if (!OK.has(record.status)) { failed++; if (!flag("--continue")) { console.log("stopped on the first failed unit (STD-005 R5); pass --continue to keep going"); break; } }
     }
     return failed ? 1 : 0;
   }
-  console.log("usage: forge models | estimate <packet> | prompt <packet> | run <packet> [--model M] [--apply] [--num-ctx N] [--timeout S] | queue <queue.json> [--apply] [--continue] | verify <packet>");
+  console.log("usage: forge models | smoke <model> | pick --task-type T | warm --model M | estimate <unit> | prompt <unit> | run <unit> [--model M] [--apply] [--num-ctx N] [--timeout S] [--json-mode] [--rework] | queue <queue.json> [--apply] [--continue] | verify <packet>");
   return 2;
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  main(process.argv.slice(2)).then((code) => process.exit(code), (e) => { console.error(e.message || e); process.exit(1); });
+  // exitCode, not process.exit(): on Windows an immediate exit right after a child process closes trips a libuv assertion
+  main(process.argv.slice(2)).then((code) => { process.exitCode = code; }, (e) => { console.error(e.message || e); process.exitCode = 1; });
 }
