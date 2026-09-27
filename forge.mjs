@@ -303,7 +303,7 @@ async function main(argv) {
   };
   const line = (record, runDir) => `${String(record.status).padEnd(12)} ${record.unit || record.packet}  model=${record.model}  files=${record.files.length}${record.refused.length ? ` refused=${record.refused.length}` : ""}${record.verify && record.verify.visible_exit != null ? `  visible=${record.verify.visible_exit === 0 ? "pass" : "fail"} holdout=${record.verify.holdout_exit === 0 ? "pass" : "fail"}` : ""}${record.design_gap ? " DESIGN_GAP" : ""}${record.purity ? ` impure:${record.purity.join("|")}` : ""}${runDir ? `\n${runDir}` : ""}`;
   const OK = new Set(["verified", "staged", "applied"]);
-  if (cmd === "run" && arg) { const { record, runDir } = await runOne(arg); console.log(line(record, runDir)); for (const v of record.verify || []) if (v.cmd) console.log(`  ${v.code === 0 ? "PASS" : "FAIL"} ${v.cmd}`); return OK.has(record.status) ? 0 : 1; }
+  if (cmd === "run" && arg) { const { record, runDir } = await runOne(arg); console.log(line(record, runDir)); for (const v of Array.isArray(record.verify) ? record.verify : []) if (v.cmd) console.log(`  ${v.code === 0 ? "PASS" : "FAIL"} ${v.cmd}`); return OK.has(record.status) ? 0 : 1; }
   if (cmd === "queue" && arg) {
     const q = JSON.parse(fs.readFileSync(arg, "utf8")); const base = path.dirname(path.resolve(arg)); let failed = 0;
     for (const item of q.packets || []) {
