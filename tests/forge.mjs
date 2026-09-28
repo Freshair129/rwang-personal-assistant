@@ -122,6 +122,13 @@ p = pickModel([...stats, ...smokeStats], smokeLedger, "parser", { candidatesUsed
 // the ledger is chronological: a later smoke pass lifts an earlier blacklist, a later blacklist removes a pass
 assert.equal(pickModel(smokeStats, [{ kind: "fail", model: "D", task_type: "smoke", blacklist: true }, ...smokeLedger], "parser").model, "D");
 assert.equal(pickModel(smokeStats, [...smokeLedger, { kind: "fail", model: "D", task_type: "smoke", blacklist: true }], "parser").model, null);
+// an operator override lifts a smoke blacklist honestly: it does not fabricate a smoke pass, so it seeds no
+// smoke-derived candidate row — the model is only chosen once real dispatches of this task type back it
+const overrideLedger = [{ kind: "fail", model: "E", task_type: "smoke", blacklist: true, lesson: "failed smoke-metronomeTicks" }, { kind: "override", model: "E", blacklist: false, lesson: "2/3 real FEAT-001 micro-tasks verified" }];
+assert.equal(pickModel([], overrideLedger, "parser").model, null, "override alone gives no task-type evidence yet");
+const eStats = [...mk("E", "pass", 2, 2), ...mk("A", "pass", 5)];
+p = pickModel(eStats, overrideLedger, "parser"); assert.equal(p.model, "E", "real dispatches after the override win on their own merit");
+assert.equal(pickModel(eStats, [...overrideLedger, { kind: "fail", model: "E", task_type: "smoke", blacklist: true }], "parser").model, "A", "a later re-blacklist overrides the override");
 assert.equal(SMOKE_TASKS.length, 3);
 for (const t of SMOKE_TASKS) { assert.ok(t.acceptance.length >= 2); assert.ok(t.holdout.length >= 1); }
 console.log("forge: ok");

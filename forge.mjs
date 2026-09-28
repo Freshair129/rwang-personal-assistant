@@ -172,9 +172,11 @@ export async function runCases(stagedFile, unitName, cases, label, timeoutMs = 6
 }
 
 export function pickModel(stats, ledger, taskType, { candidatesUsed = new Set() } = {}) {
-  // The ledger is chronological: a model's standing is its latest smoke verdict (a later pass lifts an earlier blacklist).
+  // The ledger is chronological: a model's standing is its latest verdict. A later smoke pass lifts an earlier
+  // blacklist; so does an explicit operator "override" (`forge override`) — a documented decision to trust the
+  // model despite a failed smoke task, never a claim that the smoke suite actually passed.
   const blacklist = new Set(), smoked = new Set();
-  for (const l of ledger) { if (!l.model) continue; if (l.blacklist) { blacklist.add(l.model); smoked.delete(l.model); } else if (l.kind === "pass" && l.task_type === "smoke") { blacklist.delete(l.model); smoked.add(l.model); } }
+  for (const l of ledger) { if (!l.model) continue; if (l.blacklist) { blacklist.add(l.model); smoked.delete(l.model); } else if ((l.kind === "pass" && l.task_type === "smoke") || l.kind === "override") { blacklist.delete(l.model); if (l.kind === "pass") smoked.add(l.model); } }
   const by = {}, smoke = {};
   for (const s of stats) {
     if (!s.model) continue;
@@ -287,6 +289,17 @@ async function main(argv) {
   if (cmd === "models") { for (const m of await listModels()) console.log(`${m.name}\t${m.params || ""}\t${m.quant || ""}\t${(m.size / 1e9).toFixed(1)} GB`); return 0; }
   if (cmd === "warm") { const m = opt("--model", model); if (!m) throw new Error("--model required"); const t0 = Date.now(); await chat({ model: m, messages: [{ role: "user", content: "ok" }], numCtx: 8192, numPredict: 5, timeoutMs }); console.log(`${m} warm in ${((Date.now() - t0) / 1000).toFixed(1)}s`); return 0; }
   if (cmd === "smoke") { const m = arg || model; if (!m) throw new Error("smoke <model>"); const r = await smoke(m, { out, numCtx: Number(opt("--num-ctx", 8192)), timeoutMs, jsonMode }); console.log(JSON.stringify(r, null, 1)); return r.ok ? 0 : 1; }
+  if (cmd === "override") {
+    // A documented operator decision to trust a smoke-blacklisted model anyway (e.g. real dispatches outperformed
+    // the smoke suite). Never rewrites or removes the failing smoke record — it appends a new, later entry that
+    // pickModel's chronological scan honours instead. Reversible the same way: smoke it again, or blacklist it again.
+    const m = arg || model; if (!m) throw new Error("override <model> --reason \"...\"");
+    const reason = opt("--reason", ""); if (!reason) throw new Error('--reason "..." required (what evidence justifies trusting this model despite its smoke record)');
+    const entry = { ts: new Date().toISOString(), kind: "override", model: m, severity: "info", lesson: reason, blacklist: false };
+    appendJsonl(path.join(out, "forge", "ledger.jsonl"), entry);
+    console.log(JSON.stringify(entry));
+    return 0;
+  }
   if (cmd === "pick") { const r = pickModel(readJsonl(path.join(out, "forge", "model_stats.jsonl")), readJsonl(path.join(out, "forge", "ledger.jsonl")), opt("--task-type", "pure-function")); console.log(JSON.stringify(r)); return r.model ? 0 : 2; }
   if (cmd === "estimate" && arg) { const u = loadUnit(arg); const msgs = buildMessages(u); const est = estimateTokens(msgs.map((m) => m.content).join("\n")); const numCtx = Number(opt("--num-ctx", u.kind === "micro" ? 8192 : 16384)); console.log(JSON.stringify(u.kind === "micro" ? { unit: u.id, kind: "micro", task_type: u.task_type, visible_cases: u.acceptance?.length || 0, eligibility: u.eligibility, prompt_tokens_estimate: est, fits_budget: est <= (u.budget_tokens || 600) } : { packet: u.id, layer: u.layer, acceptance: u.requirement?.acceptance?.length || 0, tests: u.tests?.length || 0, contracts: u.contracts?.length || 0, rules: u.rules?.length || 0, code_files: u.code?.length || 0, allowed_paths: u.allowed_paths, prompt_tokens_estimate: est, fits_num_ctx: est < numCtx * 0.75 }, null, 1)); return 0; }
   if (cmd === "prompt" && arg) { for (const m of buildMessages(loadUnit(arg))) console.log(`--- ${m.role} ---\n${m.content}\n`); return 0; }
@@ -313,7 +326,7 @@ async function main(argv) {
     }
     return failed ? 1 : 0;
   }
-  console.log("usage: forge models | smoke <model> | pick --task-type T | warm --model M | estimate <unit> | prompt <unit> | run <unit> [--model M] [--apply] [--num-ctx N] [--timeout S] [--json-mode] [--rework] | queue <queue.json> [--apply] [--continue] | verify <packet>");
+  console.log("usage: forge models | smoke <model> | override <model> --reason \"...\" | pick --task-type T | warm --model M | estimate <unit> | prompt <unit> | run <unit> [--model M] [--apply] [--num-ctx N] [--timeout S] [--json-mode] [--rework] | queue <queue.json> [--apply] [--continue] | verify <packet>");
   return 2;
 }
 
